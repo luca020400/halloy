@@ -149,6 +149,10 @@ pub fn plus<'a>() -> Text<'a> {
     to_text('\u{E820}')
 }
 
+pub fn robot<'a>() -> Text<'a> {
+    to_text('\u{E81A}')
+}
+
 pub fn spinner<'a>(angle: f32) -> Svg<'a, Theme> {
     let bytes = include_bytes!("../assets/spinner.svg").to_vec();
 
