@@ -279,10 +279,8 @@ impl<'a> ChannelQueryLayout<'a> {
             context_menu::not_sent_message(
                 button(
                     row![
-                        icon::not_sent()
-                            .style(|theme, status| {
-                                theme::svg::error(theme, status)
-                            })
+                        icon::error()
+                            .style(|theme| { theme::text::error(theme) })
                             .height(icon_size)
                             .width(Length::Shrink),
                         text(" Message failed to send")

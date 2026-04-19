@@ -17,9 +17,3 @@ impl Catalog for Theme {
 pub fn none(_theme: &Theme, _status: Status) -> Style {
     Style { color: None }
 }
-
-pub fn error(theme: &Theme, _status: Status) -> Style {
-    Style {
-        color: Some(theme.styles().text.error.color),
-    }
-}

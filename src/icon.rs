@@ -149,13 +149,6 @@ pub fn plus<'a>() -> Text<'a> {
     to_text('\u{E820}')
 }
 
-pub fn not_sent<'a>() -> Svg<'a, Theme> {
-    let fontawesome_attention_circled =
-        include_bytes!("../assets/fontello/fontawesome-attention.svg").to_vec();
-
-    svg(svg::Handle::from_memory(fontawesome_attention_circled))
-}
-
 pub fn spinner<'a>(angle: f32) -> Svg<'a, Theme> {
     let bytes = include_bytes!("../assets/spinner.svg").to_vec();
 
