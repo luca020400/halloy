@@ -27,3 +27,11 @@
 /docs/node_modules/
 /docs/.vitepress/cache/
 /docs/.vitepress/dist/
+
+# Fontello
+.fontello
+assets/fontello/*
+!assets/fontello/config.json
+!assets/fontello/font/
+assets/fontello/font/*
+!assets/fontello/font/halloy-icons.ttf

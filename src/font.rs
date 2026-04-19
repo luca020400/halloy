@@ -115,7 +115,7 @@ pub fn load() -> Vec<Cow<'static, [u8]>> {
         include_bytes!("../fonts/iosevka-term-lightitalic.ttf")
             .as_slice()
             .into(),
-        include_bytes!("../fonts/halloy-icons.ttf")
+        include_bytes!("../assets/fontello/font/halloy-icons.ttf")
             .as_slice()
             .into(),
     ]
