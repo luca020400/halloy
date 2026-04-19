@@ -881,9 +881,9 @@ fn upstream_buffer_button<'a>(
     {
         Some((
             if server.is_bouncer_network() {
-                icon::link()
+                icon::robot()
             } else {
-                icon::connected()
+                icon::robot()
             }
             .style(if connected {
                 if has_highlight {
