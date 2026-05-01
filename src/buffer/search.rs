@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
+use data::history::Kind;
 use data::message::Source;
-use data::{Config, User, history, message, target};
+use data::{Config, User, history, message};
 use iced::widget::{
     self, button, column, container, operation, row, scrollable, text,
     text_input,
@@ -8,46 +9,33 @@ use iced::widget::{
 use iced::{Length, Size, Task, alignment, padding};
 
 use crate::widget::key_press::{Key, Modifiers, Named};
-use crate::widget::selectable_text;
-use crate::widget::{Element, key_press};
+use crate::widget::{Element, key_press, selectable_text};
 use crate::{Theme, font, theme};
 
 const MAX_RESULTS: usize = 200;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Scope {
-    pub server: data::Server,
-    pub channel: target::Channel,
-}
-
-impl Scope {
-    pub fn new(server: data::Server, channel: target::Channel) -> Self {
-        Self { server, channel }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum Message {
     QueryChanged(String),
     Submit,
-    SelectResult(usize),
+    SelectResult(data::Buffer, message::Hash),
 }
 
 pub enum Event {
-    GoToMessage(data::Server, target::Channel, message::Hash),
+    GoToMessage(data::Buffer, message::Hash),
 }
 
 #[derive(Debug, Clone)]
 struct ResultRow {
     hash: message::Hash,
-    timestamp: DateTime<Utc>,
     sender: Option<User>,
+    timestamp: DateTime<Utc>,
     text: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct Search {
-    scope: Option<Scope>,
+    pub upstream: Option<data::buffer::Upstream>,
     query: String,
     results: Vec<ResultRow>,
     query_id: widget::Id,
@@ -55,12 +43,12 @@ pub struct Search {
 
 impl Search {
     pub fn new(
-        scope: Option<Scope>,
+        upstream: Option<data::buffer::Upstream>,
         _pane_size: Size,
         _config: &Config,
     ) -> Self {
         Self {
-            scope,
+            upstream,
             query: String::new(),
             results: vec![],
             query_id: widget::Id::unique(),
@@ -76,24 +64,15 @@ impl Search {
         match message {
             Message::QueryChanged(query) => {
                 self.query = query;
+                self.search(history, config);
                 (Task::none(), None)
             }
             Message::Submit => {
                 self.search(history, config);
                 (Task::none(), None)
             }
-            Message::SelectResult(index) => {
-                let event = self.results.get(index).and_then(|result| {
-                    self.scope.as_ref().map(|scope| {
-                        Event::GoToMessage(
-                            scope.server.clone(),
-                            scope.channel.clone(),
-                            result.hash,
-                        )
-                    })
-                });
-
-                (Task::none(), event)
+            Message::SelectResult(upstream, hash) => {
+                (Task::none(), Some(Event::GoToMessage(upstream, hash)))
             }
         }
     }
@@ -116,10 +95,12 @@ impl Search {
     }
 
     fn search(&mut self, history: &history::Manager, config: &Config) {
-        let Some(scope) = self.scope.as_ref() else {
+        let Some(upstream) = self.upstream.as_ref() else {
             self.results.clear();
             return;
         };
+
+        let kind = Kind::from_input_buffer(upstream.clone());
 
         let query = self.query.trim();
 
@@ -129,10 +110,6 @@ impl Search {
         }
 
         let query = query.to_lowercase();
-        let kind = history::Kind::Channel(
-            scope.server.clone(),
-            scope.channel.clone(),
-        );
 
         let Some(view) = history.get_messages(&kind, None, config) else {
             self.results.clear();
@@ -155,8 +132,8 @@ impl Search {
 
                 text.to_lowercase().contains(&query).then_some(ResultRow {
                     hash: message.hash,
-                    timestamp: message.server_time,
                     sender,
+                    timestamp: message.server_time,
                     text,
                 })
             })
@@ -171,12 +148,24 @@ pub fn view<'a>(
     config: &'a Config,
     theme: &'a Theme,
 ) -> Element<'a, Message> {
-    let heading = match state.scope.as_ref() {
-        Some(scope) => {
-            text(format!("Searching in {}", scope.channel)).font_maybe(
-                theme::font_style::primary(theme).map(font::get),
-            )
-        }
+    let heading = match &state.upstream {
+        Some(upstream) => match upstream {
+            data::buffer::Upstream::Server(server) => {
+                text(format!("Searching in server {}", server.name)).font_maybe(
+                    theme::font_style::primary(theme).map(font::get),
+                )
+            }
+            data::buffer::Upstream::Channel(server, channel) => text(format!(
+                "Searching in channel {} on server {}",
+                channel, server.name
+            ))
+            .font_maybe(theme::font_style::primary(theme).map(font::get)),
+            data::buffer::Upstream::Query(server, query) => text(format!(
+                "Searching in query {} on server {}",
+                query, server.name
+            ))
+            .font_maybe(theme::font_style::primary(theme).map(font::get)),
+        },
         None => text("Search is only available from a channel buffer")
             .style(theme::text::secondary)
             .font_maybe(theme::font_style::secondary(theme).map(font::get)),
@@ -191,12 +180,7 @@ pub fn view<'a>(
                 theme::text_input::primary(theme, status)
             }
         })
-        .on_input_maybe(
-            state
-                .scope
-                .is_some()
-                .then_some(Message::QueryChanged),
-        );
+        .on_input(Message::QueryChanged);
 
     let input = key_press(
         input,
@@ -207,9 +191,7 @@ pub fn view<'a>(
 
     let controls = row![
         container(input).width(Length::Fill),
-        button(text("Search")).on_press_maybe(
-            state.scope.is_some().then_some(Message::Submit)
-        )
+        button(text("Search")).on_press(Message::Submit)
     ]
     .spacing(8)
     .align_y(alignment::Vertical::Center);
@@ -231,8 +213,7 @@ pub fn view<'a>(
         .padding([8, 4])
         .into()
     } else {
-        search_results_view(state, config, theme)
-        .into()
+        search_results_view(state, config, theme).into()
     };
 
     container(
@@ -246,76 +227,72 @@ pub fn view<'a>(
     .into()
 }
 
-fn search_results_view<'a>(state: &'a Search, config: &'a Config, theme: &'a Theme) -> widget::Scrollable<'a, Message, Theme> {
-    scrollable(column(
-        state
-            .results
-            .iter()
-            .enumerate()
-            .map(|(index, result)| {
-                let timestamp = config
-                    .buffer
-                    .format_timestamp(&result.timestamp)
-                    .unwrap_or_default();
+fn search_results_view<'a>(
+    state: &'a Search,
+    config: &'a Config,
+    theme: &'a Theme,
+) -> widget::Scrollable<'a, Message, Theme> {
+    let Some(upstream) = state.upstream.as_ref() else {
+        return scrollable(container(
+            text("Search is only available from a channel buffer")
+                .style(theme::text::secondary)
+                .font_maybe(theme::font_style::secondary(theme).map(font::get)),
+        ));
+    };
 
-                let mut row_items: Vec<Element<'_, Message>> =
-                    Vec::with_capacity(3);
+    scrollable(column(state.results.iter().map(|result| {
+        let timestamp = config
+            .buffer
+            .format_timestamp(&result.timestamp)
+            .unwrap_or_default();
 
-                if !timestamp.is_empty() {
-                    row_items.push(
-                        selectable_text(timestamp)
-                            .style(theme::selectable_text::timestamp)
-                            .font_maybe(
-                                theme::font_style::timestamp(theme)
-                                    .map(font::get),
-                            )
-                            .into(),
-                    );
-                }
+        let mut row_items: Vec<Element<'_, Message>> = Vec::with_capacity(3);
 
-                if let Some(user) = result.sender.as_ref() {
-                    let nick_style =
-                        theme::selectable_text::nickname(
-                            theme, config, user, false,
-                        );
-                    let brackets = &config.buffer.nickname.brackets;
-                    let nick_str = brackets.format(user.nickname().as_str());
-                    row_items.push(
-                        selectable_text(nick_str)
-                            .style(move |_| nick_style)
-                            .font_maybe(
-                                theme::font_style::nickname(
-                                    theme, false,
-                                )
-                                .map(font::get),
-                            )
-                            .into(),
-                    );
-                }
+        if !timestamp.is_empty() {
+            row_items.push(
+                selectable_text(timestamp)
+                    .style(theme::selectable_text::timestamp)
+                    .font_maybe(
+                        theme::font_style::timestamp(theme).map(font::get),
+                    )
+                    .into(),
+            );
+        }
 
-                row_items.push(
-                    selectable_text(result.text.as_str())
-                        .style(|theme: &Theme| crate::widget::selectable_text::Style {
-                            color: Some(theme.styles().text.primary.color),
-                            selection_color: theme.styles().buffer.selection,
-                        })
-                        .font_maybe(
-                            theme::font_style::primary(theme)
-                                .map(font::get),
-                        )
-                        .into(),
-                );
+        if let Some(user) = result.sender.as_ref() {
+            let nick_style =
+                theme::selectable_text::nickname(theme, config, user, false);
+            let brackets = &config.buffer.nickname.brackets;
+            let nick_str = brackets.format(user.nickname().as_str());
+            row_items.push(
+                selectable_text(nick_str)
+                    .style(move |_| nick_style)
+                    .font_maybe(
+                        theme::font_style::nickname(theme, false)
+                            .map(font::get),
+                    )
+                    .into(),
+            );
+        }
 
-                button(
-                    row(row_items)
-                        .spacing(8)
-                        .width(Length::Fill),
-                )
-                .style(theme::button::bare)
-                .on_press(Message::SelectResult(index))
-                .width(Length::Fill)
-                .padding([4, 0])
-                .into()
-            }),
-    ))
+        row_items.push(
+            selectable_text(result.text.as_str())
+                .style(|theme: &Theme| crate::widget::selectable_text::Style {
+                    color: Some(theme.styles().text.primary.color),
+                    selection_color: theme.styles().buffer.selection,
+                })
+                .font_maybe(theme::font_style::primary(theme).map(font::get))
+                .into(),
+        );
+
+        button(row(row_items).spacing(8).width(Length::Fill))
+            .style(theme::button::bare)
+            .on_press(Message::SelectResult(
+                data::Buffer::Upstream(upstream.clone()),
+                result.hash,
+            ))
+            .width(Length::Fill)
+            .padding([4, 0])
+            .into()
+    })))
 }

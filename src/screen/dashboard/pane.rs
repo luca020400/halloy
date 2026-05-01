@@ -626,9 +626,9 @@ impl From<Pane> for data::Pane {
             Buffer::ChannelDiscovery(state) => data::Buffer::Internal(
                 buffer::Internal::ChannelDiscovery(state.server.clone()),
             ),
-            Buffer::Search(_) => {
-                data::Buffer::Internal(buffer::Internal::Search)
-            }
+            Buffer::Search(state) => data::Buffer::Internal(
+                buffer::Internal::Search(state.upstream.clone()),
+            ),
         };
 
         data::Pane::Buffer { buffer }

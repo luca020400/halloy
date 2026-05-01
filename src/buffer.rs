@@ -17,7 +17,7 @@ pub use self::file_transfers::FileTransfers;
 pub use self::highlights::Highlights;
 pub use self::logs::Logs;
 pub use self::query::Query;
-pub use self::search::{Scope as SearchScope, Search};
+pub use self::search::Search;
 pub use self::server::Server;
 use crate::Theme;
 use crate::screen::dashboard::sidebar;
@@ -34,8 +34,8 @@ mod input_view;
 pub mod logs;
 mod message_view;
 pub mod query;
-pub mod search;
 mod scroll_view;
+pub mod search;
 pub mod server;
 pub mod typing;
 
@@ -72,7 +72,7 @@ pub enum Event {
     Reconnect(data::Server),
     LeaveBuffers(Vec<Target>, Option<String>),
     SelectedServer(data::Server),
-    GoToMessage(data::Server, target::Channel, message::Hash),
+    GoToMessage(data::Buffer, message::Hash),
     History(Task<history::manager::Message>),
     RequestOlderChatHistory,
     PreviewChanged,
@@ -103,22 +103,6 @@ impl Buffer {
         pane_size: Size,
         config: &Config,
     ) -> Self {
-        Self::from_data_with_search_scope(
-            buffer,
-            history,
-            pane_size,
-            config,
-            None,
-        )
-    }
-
-    pub fn from_data_with_search_scope(
-        buffer: data::Buffer,
-        history: &history::Manager,
-        pane_size: Size,
-        config: &Config,
-        search_scope: Option<SearchScope>,
-    ) -> Self {
         match buffer {
             data::Buffer::Upstream(upstream) => match upstream {
                 buffer::Upstream::Server(server) => Self::Server(Server::new(
@@ -144,8 +128,8 @@ impl Buffer {
                 buffer::Internal::ChannelDiscovery(server) => {
                     Self::ChannelDiscovery(ChannelDiscovery::new(server))
                 }
-                buffer::Internal::Search => {
-                    Self::Search(Search::new(search_scope, pane_size, config))
+                buffer::Internal::Search(buffer) => {
+                    Self::Search(Search::new(buffer, pane_size, config))
                 }
             },
         }
@@ -179,8 +163,10 @@ impl Buffer {
             Buffer::Highlights(_) => Some(buffer::Internal::Highlights),
             Buffer::ChannelDiscovery(state) => {
                 Some(buffer::Internal::ChannelDiscovery(state.server.clone()))
-            },
-            Buffer::Search(_) => Some(buffer::Internal::Search),
+            }
+            Buffer::Search(search) => {
+                Some(buffer::Internal::Search(search.upstream.clone()))
+            }
         }
     }
 
@@ -208,9 +194,9 @@ impl Buffer {
             Buffer::ChannelDiscovery(state) => Some(data::Buffer::Internal(
                 buffer::Internal::ChannelDiscovery(state.server.clone()),
             )),
-            Buffer::Search(_) => {
-                Some(data::Buffer::Internal(buffer::Internal::Search))
-            }
+            Buffer::Search(search) => Some(data::Buffer::Internal(
+                buffer::Internal::Search(search.upstream.clone()),
+            )),
         }
     }
 
@@ -573,7 +559,12 @@ impl Buffer {
                         server,
                         channel,
                         message,
-                    ) => Event::GoToMessage(server, channel, message),
+                    ) => Event::GoToMessage(
+                        data::Buffer::Upstream(buffer::Upstream::Channel(
+                            server, channel,
+                        )),
+                        message,
+                    ),
                     highlights::Event::History(task) => Event::History(task),
                     highlights::Event::MarkAsRead => {
                         Event::MarkAsRead(history::Kind::Highlights)
@@ -596,8 +587,8 @@ impl Buffer {
                 let (command, event) = state.update(message, history, config);
 
                 let event = event.map(|event| match event {
-                    search::Event::GoToMessage(server, channel, message) => {
-                        Event::GoToMessage(server, channel, message)
+                    search::Event::GoToMessage(buffer, message) => {
+                        Event::GoToMessage(buffer, message)
                     }
                 });
 
@@ -665,8 +656,7 @@ impl Buffer {
                     .map(Message::ChannelList)
             }
             Buffer::Search(state) => {
-                search::view(state, history, config, theme)
-                    .map(Message::Search)
+                search::view(state, history, config, theme).map(Message::Search)
             }
         }
     }
@@ -682,23 +672,6 @@ impl Buffer {
             | Buffer::Highlights(_)
             | Buffer::ChannelDiscovery(_)
             | Buffer::Search(_) => false,
-        }
-    }
-
-    pub fn search_scope(&self) -> Option<SearchScope> {
-        match self {
-            Buffer::Channel(state) => Some(SearchScope::new(
-                state.server.clone(),
-                state.target.clone(),
-            )),
-            Buffer::Empty
-            | Buffer::Server(_)
-            | Buffer::Query(_)
-            | Buffer::FileTransfers(_)
-            | Buffer::Logs(_)
-            | Buffer::Highlights(_)
-            | Buffer::ChannelDiscovery(_)
-            | Buffer::Search(_) => None,
         }
     }
 

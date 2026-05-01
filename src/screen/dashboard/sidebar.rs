@@ -346,7 +346,7 @@ impl Sidebar {
                                 Some(&keyboard.search),
                                 icon::search(),
                                 Message::ToggleInternalBuffer(
-                                    buffer::Internal::Search,
+                                    buffer::Internal::Search(None),
                                 ),
                             ),
                             Menu::Logs => context_button(
