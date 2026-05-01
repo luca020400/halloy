@@ -588,7 +588,10 @@ impl Buffer {
 
                 let event = event.map(|event| match event {
                     search::Event::GoToMessage(buffer, message) => {
-                        Event::GoToMessage(buffer, message)
+                        Event::GoToMessage(
+                            data::Buffer::Upstream(buffer),
+                            message,
+                        )
                     }
                 });
 

@@ -18,11 +18,11 @@ const MAX_RESULTS: usize = 200;
 pub enum Message {
     QueryChanged(String),
     Submit,
-    SelectResult(data::Buffer, message::Hash),
+    SelectResult(data::buffer::Upstream, message::Hash),
 }
 
 pub enum Event {
-    GoToMessage(data::Buffer, message::Hash),
+    GoToMessage(data::buffer::Upstream, message::Hash),
 }
 
 #[derive(Debug, Clone)]
@@ -287,10 +287,7 @@ fn search_results_view<'a>(
 
         button(row(row_items).spacing(8).width(Length::Fill))
             .style(theme::button::bare)
-            .on_press(Message::SelectResult(
-                data::Buffer::Upstream(upstream.clone()),
-                result.hash,
-            ))
+            .on_press(Message::SelectResult(upstream.clone(), result.hash))
             .width(Length::Fill)
             .padding([4, 0])
             .into()
