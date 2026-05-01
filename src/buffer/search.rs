@@ -13,6 +13,7 @@ use crate::widget::{Element, key_press, selectable_text};
 use crate::{Theme, font, theme};
 
 const MAX_RESULTS: usize = 200;
+const RESULT_ROW_COLUMNS: usize = 3;
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -100,16 +101,14 @@ impl Search {
             return;
         };
 
-        let kind = Kind::from_input_buffer(upstream.clone());
+        let normalised = self.query.trim().to_lowercase();
 
-        let query = self.query.trim();
-
-        if query.is_empty() {
+        if normalised.is_empty() {
             self.results.clear();
             return;
         }
 
-        let query = query.to_lowercase();
+        let kind = Kind::from_input_buffer(upstream.clone());
 
         let Some(view) = history.get_messages(&kind, None, config) else {
             self.results.clear();
@@ -124,13 +123,17 @@ impl Search {
             .filter_map(|message| {
                 let text = message.text();
 
+                if !text.to_lowercase().contains(&normalised) {
+                    return None;
+                }
+
                 let sender = match message.target.source() {
                     Source::User(user) => Some(user.clone()),
                     Source::Action(Some(user)) => Some(user.clone()),
                     _ => None,
                 };
 
-                text.to_lowercase().contains(&query).then_some(ResultRow {
+                Some(ResultRow {
                     hash: message.hash,
                     sender,
                     timestamp: message.server_time,
@@ -213,7 +216,12 @@ pub fn view<'a>(
         .padding([8, 4])
         .into()
     } else {
-        search_results_view(state, config, theme).into()
+        let upstream = state
+            .upstream
+            .as_ref()
+            .expect("results exist only with a valid upstream");
+
+        search_results_view(upstream, &state.results, config, theme).into()
     };
 
     container(
@@ -228,25 +236,19 @@ pub fn view<'a>(
 }
 
 fn search_results_view<'a>(
-    state: &'a Search,
+    upstream: &'a data::buffer::Upstream,
+    results: &'a [ResultRow],
     config: &'a Config,
     theme: &'a Theme,
 ) -> widget::Scrollable<'a, Message, Theme> {
-    let Some(upstream) = state.upstream.as_ref() else {
-        return scrollable(container(
-            text("Search is only available from a channel buffer")
-                .style(theme::text::secondary)
-                .font_maybe(theme::font_style::secondary(theme).map(font::get)),
-        ));
-    };
-
-    scrollable(column(state.results.iter().map(|result| {
+    scrollable(column(results.iter().map(|result| {
         let timestamp = config
             .buffer
             .format_timestamp(&result.timestamp)
             .unwrap_or_default();
 
-        let mut row_items: Vec<Element<'_, Message>> = Vec::with_capacity(3);
+        let mut row_items: Vec<Element<'_, Message>> =
+            Vec::with_capacity(RESULT_ROW_COLUMNS);
 
         if !timestamp.is_empty() {
             row_items.push(
