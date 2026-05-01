@@ -228,9 +228,12 @@ impl Pane {
             }),
             Buffer::Logs(_) => Some(history::Resource::logs()),
             Buffer::Highlights(_) => Some(history::Resource::highlights()),
-            Buffer::ChannelDiscovery(_)
-            | Buffer::FileTransfers(_)
-            | Buffer::Search(_) => None,
+            Buffer::ChannelDiscovery(_) | Buffer::FileTransfers(_) => None,
+            Buffer::Search(state) => {
+                state.upstream.as_ref().map(|upstream| history::Resource {
+                    kind: history::Kind::from_input_buffer(upstream.clone()),
+                })
+            }
         }
     }
 
