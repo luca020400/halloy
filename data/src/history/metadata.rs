@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs;
 
 use crate::Message;
-use crate::history::{Error, Kind, dir_path};
+use crate::history::{Error, Kind, dir_path, file_name};
 use crate::message::{MessageReferences, source};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -207,21 +207,8 @@ pub async fn delete(kind: &Kind) -> Result<(), Error> {
 }
 
 async fn path(kind: &Kind) -> Result<PathBuf, Error> {
-    let dir = dir_path().await?;
+    let dir = dir_path(kind).await?;
+    let file_name = file_name(kind, Some("metadata")).await;
 
-    let name = match kind {
-        Kind::Server(server) => format!("{server}-metadata"),
-        Kind::Channel(server, channel) => {
-            format!("{server}channel{}-metadata", channel.as_normalized_str())
-        }
-        Kind::Query(server, query) => {
-            format!("{server}nickname{}-metadata", query.as_normalized_str())
-        }
-        Kind::Logs => "logs-metadata".to_string(),
-        Kind::Highlights => "highlights-metadata".to_string(),
-    };
-
-    let hashed_name = seahash::hash(name.as_bytes());
-
-    Ok(dir.join(format!("{hashed_name}.json")))
+    Ok(dir.join(format!("{file_name}.json")))
 }

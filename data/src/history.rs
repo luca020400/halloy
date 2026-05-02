@@ -350,36 +350,52 @@ async fn read_all(path: &PathBuf) -> Result<Vec<Message>, Error> {
     Ok(compression::decompress(&bytes)?)
 }
 
-pub async fn dir_path() -> Result<PathBuf, Error> {
+pub async fn dir_path(kind: &Kind) -> Result<PathBuf, Error> {
     let data_dir = environment::data_dir();
 
-    let history_dir = data_dir.join("history");
+    let sub_dir = match kind {
+        Kind::Server(_) => "servers".to_string(),
+        Kind::Channel(server, _) | Kind::Query(server, _) => {
+            format!(
+                "servers/{}",
+                sanitize_filename::sanitize(server.to_string())
+            )
+        }
+        _ => "internal".to_string(),
+    };
 
-    if !history_dir.exists() {
-        fs::create_dir_all(&history_dir).await?;
+    let dir = data_dir.join("history").join(&sub_dir);
+
+    if !dir.exists() {
+        fs::create_dir_all(&dir).await?;
     }
 
-    Ok(history_dir)
+    Ok(dir)
+}
+
+async fn file_name(kind: &Kind, suffix: Option<&str>) -> String {
+    let suffix = suffix.map(|s| format!("-{s}")).unwrap_or_default();
+
+    let name = match kind {
+        Kind::Server(server) => format!("{server}{suffix}"),
+        Kind::Channel(_, channel) => {
+            format!("{}{suffix}", channel.as_normalized_str())
+        }
+        Kind::Query(_, query) => {
+            format!("{}{suffix}", query.as_normalized_str())
+        }
+        Kind::Logs => format!("logs{suffix}"),
+        Kind::Highlights => format!("highlights{suffix}"),
+    };
+
+    sanitize_filename::sanitize(&name)
 }
 
 async fn path(kind: &Kind) -> Result<PathBuf, Error> {
-    let dir = dir_path().await?;
+    let dir = dir_path(kind).await?;
+    let file_name = file_name(kind, None).await;
 
-    let name = match kind {
-        Kind::Server(server) => format!("{server:b}"),
-        Kind::Channel(server, channel) => {
-            format!("{server:b}channel{}", channel.as_normalized_str())
-        }
-        Kind::Query(server, query) => {
-            format!("{server:b}nickname{}", query.as_normalized_str())
-        }
-        Kind::Logs => "logs".to_string(),
-        Kind::Highlights => "highlights".to_string(),
-    };
-
-    let hashed_name = seahash::hash(name.as_bytes());
-
-    Ok(dir.join(format!("{hashed_name}.json.gz")))
+    Ok(dir.join(format!("{file_name}.json.gz")))
 }
 
 #[derive(Debug)]
