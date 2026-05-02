@@ -334,7 +334,6 @@ fn picker<'a, Message: 'a>(
                   layout: advanced::Layout<'_>,
                   cursor: advanced::mouse::Cursor,
                   _renderer: &Renderer,
-                  _clipboard: &mut dyn advanced::Clipboard,
                   shell: &mut advanced::Shell<'_, Message>,
                   _viewport: &iced::Rectangle| {
                 let bounds = layout.bounds();
@@ -342,10 +341,9 @@ fn picker<'a, Message: 'a>(
                     picker.handle_from_color(color, bounds, handle_radius);
 
                 match event {
-                    iced::Event::Mouse(mouse::Event::ButtonPressed {
-                        button: mouse::Button::Left,
-                        ..
-                    })
+                    iced::Event::Mouse(mouse::Event::ButtonPressed(
+                        mouse::Button::Left,
+                    ))
                     | iced::Event::Touch(touch::Event::FingerPressed {
                         ..
                     }) if state.is_none() => {

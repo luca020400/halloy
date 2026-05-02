@@ -1,6 +1,6 @@
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::widget::{self, Widget};
-use iced::advanced::{self, Clipboard, Shell, overlay, renderer};
+use iced::advanced::{self, Shell, overlay, renderer};
 use iced::alignment::Alignment;
 use iced::keyboard::key;
 use iced::{
@@ -96,7 +96,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
@@ -118,7 +117,6 @@ where
             layout,
             cursor,
             renderer,
-            clipboard,
             shell,
             viewport,
         );
@@ -229,7 +227,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) {
         match event {
@@ -241,10 +238,7 @@ where
                 shell.capture_event();
                 return;
             }
-            Event::Mouse(mouse::Event::ButtonPressed {
-                button: mouse::Button::Left,
-                ..
-            }) => {
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 let bounds = layout.children().next().unwrap().bounds();
 
                 if !cursor.is_over(bounds) {
@@ -262,7 +256,6 @@ where
             layout.children().next().unwrap(),
             cursor,
             renderer,
-            clipboard,
             shell,
             &layout.bounds(),
         );

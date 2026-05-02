@@ -1,7 +1,7 @@
 use std::time;
 
 use iced::advanced::widget::Tree;
-use iced::advanced::{Clipboard, Layout, Shell, mouse};
+use iced::advanced::{Layout, Shell, mouse};
 use iced::event;
 
 const TIMEOUT_MILLIS: u64 = 250;
@@ -25,12 +25,10 @@ where
                   layout: Layout<'_>,
                   cursor: mouse::Cursor,
                   renderer: &Renderer,
-                  clipboard: &mut dyn Clipboard,
                   shell: &mut Shell<'_, Message>,
                   viewport: &iced::Rectangle| {
                 inner.as_widget_mut().update(
-                    tree, event, layout, cursor, renderer, clipboard, shell,
-                    viewport,
+                    tree, event, layout, cursor, renderer, shell, viewport,
                 );
 
                 if shell.is_event_captured() {
@@ -41,10 +39,9 @@ where
                     return;
                 }
 
-                let event::Event::Mouse(mouse::Event::ButtonPressed {
-                    button: mouse::Button::Left,
-                    ..
-                }) = event
+                let event::Event::Mouse(mouse::Event::ButtonPressed(
+                    mouse::Button::Left,
+                )) = event
                 else {
                     return;
                 };

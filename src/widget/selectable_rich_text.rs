@@ -7,7 +7,7 @@ use iced::advanced::renderer::Quad;
 use iced::advanced::text::{self, Highlight, Paragraph, Span, Text};
 use iced::advanced::widget::Operation;
 use iced::advanced::widget::tree::{self, Tree};
-use iced::advanced::{Clipboard, Layout, Shell, Widget, layout, renderer};
+use iced::advanced::{Layout, Shell, Widget, layout, renderer};
 use iced::widget::container;
 use iced::widget::text::{LineHeight, Shaping};
 use iced::widget::text_input::Value;
@@ -356,7 +356,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
@@ -416,10 +415,9 @@ where
         }
 
         match event {
-            iced::Event::Mouse(mouse::Event::ButtonPressed {
-                button: mouse::Button::Left,
-                ..
-            })
+            iced::Event::Mouse(mouse::Event::ButtonPressed(
+                mouse::Button::Left,
+            ))
             | iced::Event::Touch(touch::Event::FingerPressed { .. }) => {
                 if let Some(position) = cursor.position_in(bounds)
                     && let Some(span) = state.paragraph.hit_span(position)
@@ -555,10 +553,9 @@ where
                     raw.end = cursor;
                 }
             }
-            iced::Event::Mouse(mouse::Event::ButtonPressed {
-                button: mouse::Button::Right,
-                ..
-            }) => {
+            iced::Event::Mouse(mouse::Event::ButtonPressed(
+                mouse::Button::Right,
+            )) => {
                 if let Some(position) = cursor.position_in(bounds)
                     && let Some((link_entries, _)) = &self.context_menu
                     && let Some((link, entries)) =

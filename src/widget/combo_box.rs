@@ -5,8 +5,7 @@ use std::time::Instant;
 
 use iced::advanced::graphics::text::Paragraph;
 use iced::advanced::{
-    Clipboard, Layout, Shell, Widget, layout, mouse, overlay, renderer, text,
-    widget,
+    Layout, Shell, Widget, layout, mouse, overlay, renderer, text, widget,
 };
 use iced::overlay::menu;
 use iced::widget::text::LineHeight;
@@ -432,7 +431,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
@@ -455,7 +453,6 @@ where
             layout,
             cursor,
             renderer,
-            clipboard,
             &mut local_shell,
             viewport,
         );
@@ -654,14 +651,12 @@ where
                 let mut tree = state.text_input_tree();
                 self.text_input.update(
                     &mut tree,
-                    &Event::Mouse(mouse::Event::ButtonPressed {
-                        button: mouse::Button::Left,
-                        modifiers: keyboard::Modifiers::default(),
-                    }),
+                    &Event::Mouse(mouse::Event::ButtonPressed(
+                        mouse::Button::Left,
+                    )),
                     layout,
                     mouse::Cursor::Unavailable,
                     renderer,
-                    clipboard,
                     &mut Shell::new(&mut vec![]),
                     viewport,
                 );

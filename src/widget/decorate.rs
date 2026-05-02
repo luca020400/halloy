@@ -326,7 +326,6 @@ pub trait Update<'a, Message, Theme, Renderer, State> {
         layout: advanced::Layout<'_>,
         cursor: advanced::mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn advanced::Clipboard,
         shell: &mut advanced::Shell<'_, Message>,
         viewport: &iced::Rectangle,
     );
@@ -346,13 +345,12 @@ where
         layout: advanced::Layout<'_>,
         cursor: advanced::mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn advanced::Clipboard,
         shell: &mut advanced::Shell<'_, Message>,
         viewport: &iced::Rectangle,
     ) {
-        inner.as_widget_mut().update(
-            tree, event, layout, cursor, renderer, clipboard, shell, viewport,
-        );
+        inner
+            .as_widget_mut()
+            .update(tree, event, layout, cursor, renderer, shell, viewport);
     }
 }
 
@@ -367,7 +365,6 @@ where
             advanced::Layout<'_>,
             advanced::mouse::Cursor,
             &Renderer,
-            &mut dyn advanced::Clipboard,
             &mut advanced::Shell<'_, Message>,
             &iced::Rectangle,
         ) + 'a,
@@ -381,13 +378,12 @@ where
         layout: advanced::Layout<'_>,
         cursor: advanced::mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn advanced::Clipboard,
         shell: &mut advanced::Shell<'_, Message>,
         viewport: &iced::Rectangle,
     ) {
         self(
-            state, inner, tree, event, layout, cursor, renderer, clipboard,
-            shell, viewport,
+            state, inner, tree, event, layout, cursor, renderer, shell,
+            viewport,
         );
     }
 }
@@ -733,7 +729,6 @@ where
         layout: advanced::Layout<'_>,
         cursor: advanced::mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn advanced::Clipboard,
         shell: &mut advanced::Shell<'_, Message>,
         viewport: &iced::Rectangle,
     ) {
@@ -745,7 +740,6 @@ where
             layout,
             cursor,
             renderer,
-            clipboard,
             shell,
             viewport,
         );

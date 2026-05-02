@@ -2,7 +2,7 @@ use std::slice;
 
 use iced::advanced::widget::{Operation, operation, tree};
 use iced::advanced::{
-    self, Clipboard, Layout, Shell, Widget, layout, overlay, renderer, widget,
+    self, Layout, Shell, Widget, layout, overlay, renderer, widget,
 };
 pub use iced::widget::container::{Style, StyleFn};
 use iced::widget::{column, container};
@@ -228,7 +228,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
@@ -238,7 +237,6 @@ where
             layout,
             cursor,
             renderer,
-            clipboard,
             shell,
             viewport,
         );
@@ -256,16 +254,15 @@ where
             let prev_status = state.status;
 
             // is this a mouse event for that we should do something?
-            let is_activation_mouse_event =
-                if let Event::Mouse(mouse::Event::ButtonPressed {
-                    button, ..
-                }) = event
-                    && *button == self.activation_button
-                {
-                    true
-                } else {
-                    false
-                };
+            let is_activation_mouse_event = if let Event::Mouse(
+                mouse::Event::ButtonPressed(button),
+            ) = event
+                && *button == self.activation_button
+            {
+                true
+            } else {
+                false
+            };
 
             let position = if is_activation_mouse_event {
                 match self.anchor {
@@ -631,7 +628,6 @@ where
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) {
         if let Event::Mouse(mouse::Event::ButtonPressed { .. }) = &event
@@ -656,7 +652,6 @@ where
             layout,
             cursor,
             renderer,
-            clipboard,
             shell,
             &layout.bounds(),
         );

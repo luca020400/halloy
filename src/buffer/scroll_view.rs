@@ -2142,7 +2142,6 @@ mod correct_viewport {
                       layout: advanced::Layout<'_>,
                       cursor: advanced::mouse::Cursor,
                       renderer: &Renderer,
-                      clipboard: &mut dyn advanced::Clipboard,
                       shell: &mut advanced::Shell<'_, Message>,
                       viewport: &iced::Rectangle| {
                     let is_redraw = matches!(
@@ -2219,7 +2218,6 @@ mod correct_viewport {
                         layout,
                         cursor,
                         renderer,
-                        clipboard,
                         &mut local_shell,
                         viewport,
                     );

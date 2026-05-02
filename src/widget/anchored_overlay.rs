@@ -1,5 +1,5 @@
 use iced::advanced::{
-    Clipboard, Layout, Shell, Widget, layout, overlay, renderer, widget,
+    Layout, Shell, Widget, layout, overlay, renderer, widget,
 };
 use iced::{Event, Length, Point, Rectangle, Size, Vector, mouse};
 
@@ -112,7 +112,6 @@ impl<Message> Widget<Message, Theme, Renderer>
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
@@ -122,7 +121,6 @@ impl<Message> Widget<Message, Theme, Renderer>
             layout,
             cursor,
             renderer,
-            clipboard,
             shell,
             viewport,
         );
@@ -278,7 +276,6 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer>
         layout: Layout<'_>,
         cursor: mouse::Cursor,
         renderer: &Renderer,
-        clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
     ) {
         let should_capture = matches!(event, Event::Mouse(_) | Event::Touch(_))
@@ -290,7 +287,6 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer>
             layout,
             cursor,
             renderer,
-            clipboard,
             shell,
             &layout.bounds(),
         );

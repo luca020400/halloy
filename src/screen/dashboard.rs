@@ -26,7 +26,7 @@ use data::{
 };
 use iced::widget::pane_grid::{self, PaneGrid};
 use iced::widget::{Space, center, column, container, row, stack, text};
-use iced::{Length, Padding, Size, Task, Vector, advanced, clipboard};
+use iced::{Length, Padding, Size, Task, Vector, clipboard};
 use irc::proto;
 
 use self::command_bar::CommandBar;
@@ -78,7 +78,7 @@ pub struct Dashboard {
 pub enum Message {
     Pane(window::Id, pane::Message),
     Sidebar(sidebar::Message),
-    SelectedText(Vec<(f32, String)>, advanced::clipboard::Kind),
+    SelectedText(Vec<(f32, String)>),
     History(history::manager::Message),
     DashboardSaved(Result<(), data::dashboard::Error>),
     Task(command_bar::Message),
@@ -771,7 +771,7 @@ impl Dashboard {
                     event,
                 );
             }
-            Message::SelectedText(contents, clipboard_kind) => {
+            Message::SelectedText(contents) => {
                 let mut last_y = None;
                 let contents = contents.into_iter().fold(
                     String::new(),
@@ -790,17 +790,7 @@ impl Dashboard {
                 );
 
                 if !contents.is_empty() {
-                    return (
-                        match clipboard_kind {
-                            advanced::clipboard::Kind::Standard => {
-                                clipboard::write(contents)
-                            }
-                            advanced::clipboard::Kind::Primary => {
-                                clipboard::write_primary(contents)
-                            }
-                        },
-                        None,
-                    );
+                    return (clipboard::write(contents).discard(), None);
                 }
             }
             Message::History(message) => {
@@ -2162,11 +2152,11 @@ impl Dashboard {
                         None
                     }
                     buffer::context_menu::Event::CopyUrl(url) => {
-                        tasks.push(clipboard::write(url));
+                        tasks.push(clipboard::write(url).discard());
                         None
                     }
                     buffer::context_menu::Event::CopyMessage(text) => {
-                        tasks.push(clipboard::write(text));
+                        tasks.push(clipboard::write(text).discard());
                         None
                     }
                     buffer::context_menu::Event::OpenUrl(url) => {
@@ -2358,7 +2348,7 @@ impl Dashboard {
                         let date_time =
                             config.buffer.format_copy_timestamp(&date_time);
 
-                        tasks.push(clipboard::write(date_time));
+                        tasks.push(clipboard::write(date_time).discard());
 
                         None
                     }
@@ -2854,20 +2844,9 @@ impl Dashboard {
                 }
             }
             Copy => selectable_text::selected(|selected_text| {
-                Message::SelectedText(
-                    selected_text,
-                    advanced::clipboard::Kind::Standard,
-                )
+                Message::SelectedText(selected_text)
             }),
             LeftClick => self.refocus_pane(),
-            UpdatePrimaryClipboard => {
-                selectable_text::selected(|selected_text| {
-                    Message::SelectedText(
-                        selected_text,
-                        advanced::clipboard::Kind::Primary,
-                    )
-                })
-            }
         }
     }
 
