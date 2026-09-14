@@ -1211,7 +1211,7 @@ who_poll_interval = 2
 
 ```toml
 # Type: array of strings
-# Values: "account-notify", "away-notify", "batch", "bouncer-networks", "chathistory", "chghost", "echo-message", "event-playback", "extended-join", "extended-monitor", "invite-notify", "labeled-response", "message-tags", "message-redaction", "multiline", "multi-prefix", "metadata", "no-implicit-names", "read-marker", "sasl", "server-time", "setname", "userhost-in-names", "whoami"
+# Values: "account-notify", "away-notify", "batch", "bouncer-networks", "chathistory", "chghost", "echo-message", "event-playback", "extended-join", "extended-monitor", "invite-notify", "labeled-response", "message-tags", "message-redaction", "multiline", "multi-prefix", "metadata", "no-implicit-names", "read-marker", "sasl", "server-time", "setname", "user-query", "userhost-in-names", "whoami"
 # Default: not set
 
 [servers.<name>]

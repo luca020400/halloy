@@ -45,6 +45,7 @@ pub enum Capability {
     ServerTime,
     Setname,
     UserhostInNames,
+    UserQuery,
     Whoami,
 }
 
@@ -79,6 +80,7 @@ impl FromStr for Capability {
             "setname" => Ok(Self::Setname),
             "soju.im/bouncer-networks" => Ok(Self::BouncerNetworks),
             "userhost-in-names" => Ok(Self::UserhostInNames),
+            "draft/user-query" => Ok(Self::UserQuery),
             _ if cap.starts_with("sasl") => Ok(Self::Sasl),
             _ => Err("unknown capability"),
         }
@@ -351,6 +353,7 @@ impl Capabilities {
                 | Capability::ServerTime
                 | Capability::Setname
                 | Capability::UserhostInNames
+                | Capability::UserQuery
                 | Capability::Whoami => (),
             }
 
@@ -554,6 +557,15 @@ impl Capabilities {
         if let Some(request) =
             self.create_request("draft/whoami", &[], available, config)
         {
+            requested.push(request);
+        }
+
+        if let Some(request) = self.create_request(
+            "draft/user-query",
+            &["batch"],
+            available,
+            config,
+        ) {
             requested.push(request);
         }
 

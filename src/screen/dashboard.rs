@@ -3283,6 +3283,7 @@ impl Dashboard {
                 let user = User::from(Nick::from(query));
 
                 clients.add_monitored_user_automated(server, &user);
+                clients.send_userquery_open(server, query);
             }
             Some(buffer::Upstream::Server(..)) | None => (),
         }
@@ -3541,11 +3542,14 @@ impl Dashboard {
                 (Task::batch(tasks), None)
             }
             buffer::Upstream::Query(server, nick) => {
-                if let Some(client) = clients.client_mut(&server)
-                    && let user = User::from(Nick::from(&nick))
-                    && client.is_monitored_user_automated(&user)
-                {
-                    client.remove_monitored_user(&user);
+                if let Some(client) = clients.client_mut(&server) {
+                    client.send_userquery_close(&nick);
+
+                    if let user = User::from(Nick::from(&nick))
+                        && client.is_monitored_user_automated(&user)
+                    {
+                        client.remove_monitored_user(&user);
+                    }
                 }
 
                 tasks.push(
@@ -3609,6 +3613,16 @@ impl Dashboard {
                 Task::batch(tasks)
             }
             Target::Query(nick) => {
+                if let Some(client) = clients.client_mut(&server) {
+                    if let user = User::from(Nick::from(&nick))
+                        && client.is_monitored_user_automated(&user)
+                    {
+                        client.remove_monitored_user(&user);
+                    }
+
+                    client.send_userquery_close(&nick);
+                }
+
                 tasks.push(
                     self.history
                         .close(history::Kind::Query(server, nick), clients)
@@ -4225,6 +4239,17 @@ impl Dashboard {
         let kind = history::Kind::Query(server, query);
 
         self.history.open(kind);
+    }
+
+    pub fn remove_from_sidebar(
+        &mut self,
+        server: Server,
+        query: target::Query,
+        clients: &data::client::Map,
+    ) -> Option<Task<Message>> {
+        self.history
+            .close(history::Kind::Query(server, query), clients)
+            .map(|task| Task::perform(task, Message::History))
     }
 
     fn exit_focus_mode_task(&self) -> Option<Task<Message>> {

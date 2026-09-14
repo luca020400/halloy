@@ -189,6 +189,7 @@ pub enum Event {
     OnConnect(on_connect::Stream),
     BouncerNetwork(Server, Arc<config::Server>),
     AddToSidebar(target::Query),
+    RemoveFromSidebar(target::Query),
     AuthenticationFailed(Option<String>),
     UpdateIcon,
 }
@@ -1585,6 +1586,27 @@ impl Client {
                             channel.users.insert(user.with_accountname("*"));
                         }
                     });
+                }
+            }
+            Command::USERQUERY(subcommand, target) => {
+                let Ok(query) = target::Query::parse(
+                    target,
+                    self.chantypes(),
+                    self.statusmsg(),
+                    self.casemapping(),
+                ) else {
+                    return Ok(vec![]);
+                };
+
+                match subcommand.as_str() {
+                    "LIST" | "OPEN" => {
+                        self.record_query(&query);
+                        return Ok(vec![Event::AddToSidebar(query)]);
+                    }
+                    "CLOSE" => {
+                        return Ok(vec![Event::RemoveFromSidebar(query)]);
+                    }
+                    _ => {}
                 }
             }
             Command::PRIVMSG(_, text) | Command::NOTICE(_, text) => {
@@ -3343,6 +3365,14 @@ impl Client {
                     }
                 }
 
+                if self.capabilities.acknowledged(Capability::UserQuery) {
+                    self.send(
+                        None,
+                        command!("USERQUERY", "LIST").into(),
+                        TokenPriority::High,
+                    );
+                }
+
                 return Ok(events);
             }
             Command::Numeric(RPL_VERSION, args) => {
@@ -3408,6 +3438,16 @@ impl Client {
 
                     // Expected as part of requesting keys via METADATA SUB,
                     // hide from the user.
+                    return Ok(vec![]);
+                }
+
+                // Ignore failures to open/close user queries if already open/closed.
+                if command == "USERQUERY"
+                    && (code == "OPEN" || code == "CLOSE")
+                    && let Some(error) =
+                        context.as_ref().and_then(|context| context.first())
+                    && (error == "ALREADY_OPENED" || error == "ALREADY_CLOSED")
+                {
                     return Ok(vec![]);
                 }
             }
@@ -3700,6 +3740,21 @@ impl Client {
                 our_nick: self.nickname().to_owned(),
                 deduplicate: true,
             }],
+        }
+    }
+
+    pub fn send_userquery(
+        &mut self,
+        subcommand: &'static str,
+        query: &target::Query,
+        priority: TokenPriority,
+    ) {
+        if self.capabilities.acknowledged(Capability::UserQuery) {
+            self.send(
+                None,
+                command!("USERQUERY", subcommand, query.as_str()).into(),
+                priority,
+            );
         }
     }
 
@@ -4668,6 +4723,22 @@ impl Client {
             );
         }
     }
+
+    pub fn send_userquery_open(&mut self, query: &target::Query) {
+        self.send(
+            None,
+            command!("USERQUERY", "OPEN", query.as_normalized_str()).into(),
+            TokenPriority::Low,
+        );
+    }
+
+    pub fn send_userquery_close(&mut self, query: &target::Query) {
+        self.send(
+            None,
+            command!("USERQUERY", "CLOSE", query.as_normalized_str()).into(),
+            TokenPriority::Low,
+        );
+    }
 }
 
 fn compare_channels_default(chantypes: &[char], a: &str, b: &str) -> Ordering {
@@ -4804,6 +4875,7 @@ fn continue_chathistory_between(
             | Event::OnConnect(_)
             | Event::BouncerNetwork(_, _)
             | Event::AddToSidebar(_)
+            | Event::RemoveFromSidebar(_)
             | Event::AuthenticationFailed(_)
             | Event::UpdateIcon => None,
         });
@@ -4853,6 +4925,7 @@ fn continue_chathistory_targets(
             | Event::OnConnect(_)
             | Event::BouncerNetwork(_, _)
             | Event::AddToSidebar(_)
+            | Event::RemoveFromSidebar(_)
             | Event::AuthenticationFailed(_)
             | Event::UpdateIcon => None,
         });
@@ -5032,6 +5105,16 @@ impl Map {
     ) -> Option<LabeledResponseContext> {
         self.client_mut(buffer.server())
             .and_then(|client| client.send(Some(buffer), message, priority))
+    }
+
+    pub fn send_userquery_open(
+        &mut self,
+        server: &Server,
+        query: &target::Query,
+    ) {
+        if let Some(client) = self.client_mut(server) {
+            client.send_userquery_open(query);
+        }
     }
 
     pub fn send_multiline_batch(

@@ -124,6 +124,8 @@ pub enum Command {
     USERIP(String),
     /// <target> <msgid> [<reason>]
     REDACT(String, String, Option<String>),
+    /// <subcommand> <target>
+    USERQUERY(String, String),
 
     /* Standard Replies */
     /// <command> <code> [<context>] <description>
@@ -245,6 +247,7 @@ impl Command {
             "TAGMSG" if len > 0 => TAGMSG(req!()),
             "USERIP" if len > 0 => USERIP(req!()),
             "REDACT" if len > 1 => REDACT(req!(), req!(), opt!()),
+            "USERQUERY" if len > 1 => USERQUERY(req!(), req!()),
             "FAIL" if len > 2 => {
                 let a = req!();
                 let b = req!();
@@ -354,6 +357,7 @@ impl Command {
             Command::REDACT(a, b, c) => {
                 std::iter::once(a).chain(Some(b)).chain(c).collect()
             }
+            Command::USERQUERY(a, b) => vec![a, b],
             Command::FAIL(a, b, c, d) => std::iter::once(a)
                 .chain(Some(b))
                 .chain(c.into_iter().flatten())
@@ -438,6 +442,7 @@ impl Command {
             TAGMSG(_) => "TAGMSG".into(),
             USERIP(_) => "USERIP".into(),
             REDACT(_, _, _) => "REDACT".into(),
+            USERQUERY(_, _) => "USERQUERY".into(),
             FAIL(_, _, _, _) => "FAIL".into(),
             WARN(_, _, _, _) => "WARN".into(),
             NOTE(_, _, _, _) => "NOTE".into(),

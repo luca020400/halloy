@@ -2118,6 +2118,14 @@ fn handle_client_events(
             Event::AddToSidebar(query) => {
                 dashboard.add_to_sidebar(server.clone(), query);
             }
+            Event::RemoveFromSidebar(query) => {
+                if let Some(command) = dashboard
+                    .remove_from_sidebar(server.clone(), query, clients)
+                    .map(|cmd| cmd.map(Message::Dashboard))
+                {
+                    commands.push(command);
+                }
+            }
             Event::AuthenticationFailed(error) => {
                 for bouncer_network in servers.get_bouncer_networks(server) {
                     controllers

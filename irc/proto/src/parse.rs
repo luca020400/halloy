@@ -385,6 +385,17 @@ mod test {
                 },
             ),
             (
+                Vec::from(b":irc.example.org USERQUERY OPEN sophie\r\n"),
+                Message {
+                    tags: tags![],
+                    source: Some(Source::Server("irc.example.org".to_string())),
+                    command: Command::USERQUERY(
+                        "OPEN".to_string(),
+                        "sophie".to_string(),
+                    ),
+                },
+            ),
+            (
                 Vec::from(b"@tag=as\\\\\\:\\sdf\\z\\ UNKNOWN\r\n"),
                 Message {
                     tags: tags!["tag" => "as\\; dfz"],

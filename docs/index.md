@@ -58,6 +58,7 @@ We strive to be a leading irc client with a rich IRCv3 feature set. Currently su
 - [setname](https://ircv3.net/specs/extensions/setname.html)
 - [Standard Replies](https://ircv3.net/specs/extensions/standard-replies)
 - [typing](https://ircv3.net/specs/client-tags/typing)
+- [user-query](https://github.com/ircv3/ircv3-specifications/pull/569)
 - [userhost-in-names](https://ircv3.net/specs/extensions/userhost-in-names)
 - [`UTF8ONLY`](https://ircv3.net/specs/extensions/utf8-only)
 - [`WHOX`](https://ircv3.net/specs/extensions/whox)

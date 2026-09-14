@@ -93,6 +93,7 @@ pub enum Irc {
         msgid: message::Id,
         reason: Option<String>,
     },
+    UserQuery(String, String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -2049,6 +2050,9 @@ impl TryFrom<Irc> for proto::Command {
                 msgid,
                 reason,
             } => proto::Command::REDACT(target, msgid.to_string(), reason),
+            Irc::UserQuery(subcommand, target) => {
+                proto::Command::USERQUERY(subcommand, target)
+            }
         })
     }
 }

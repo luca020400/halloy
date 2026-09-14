@@ -3193,6 +3193,7 @@ fn target(
         | Command::Unknown(_, _)
         | Command::BOUNCER(_, _)
         | Command::REDACT(_, _, _)
+        | Command::USERQUERY(_, _)
         | Command::METADATA(_, _)
         | Command::Raw(_) => Some((
             Target::Server {
