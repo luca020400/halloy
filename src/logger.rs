@@ -12,7 +12,7 @@ use tokio_stream::wrappers::ReceiverStream;
 pub fn setup(
     config: config::Logs,
 ) -> Result<ReceiverStream<Vec<Record>>, Error> {
-    let env_rust_log = env::var("RUST_LOG")
+    let env_rust_log = env::var("RUST_LOG2")
         .ok()
         .as_deref()
         .and_then(|rust_log| str::parse::<log::Level>(rust_log).ok());
