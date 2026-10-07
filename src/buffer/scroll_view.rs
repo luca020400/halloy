@@ -17,8 +17,8 @@ use data::server::Server;
 use data::target::{self, Target};
 use data::{Config, Image, Preview, client, history, metadata, reaction};
 use iced::widget::{
-    self, Scrollable, button, column, container, row, rule, scrollable, sensor,
-    space, text,
+    self, Scrollable, button, column, container, row, rule, scrollable, space,
+    text,
 };
 use iced::{Length, Size, Task, padding};
 use tokio::time;
@@ -77,7 +77,6 @@ pub enum Message {
     PreviewUnhovered(message::Hash, usize),
     HidePreview(message::Hash, url::Url),
     MarkAsRead,
-    ContentResized(Size),
     PendingScrollTo,
     FadeHighlight(message::Hash, u64),
     HeightsCollected(Vec<(keyed::Key, f32)>),
@@ -852,9 +851,7 @@ pub fn view<'a>(
         content_column = content_column.push(bottom_spacer);
     }
 
-    let content =
-        sensor(content_column.push(space::vertical().height(line_spacing)))
-            .on_resize(Message::ContentResized);
+    let content = content_column.push(space::vertical().height(line_spacing));
 
     correct_viewport(
         Scrollable::new(container(content).width(Length::Fill).padding([0, 8]))
@@ -888,7 +885,6 @@ pub struct State {
     pub scrollable: widget::Id,
     pane_size: Size,
     viewport_height: f32,
-    content_size: Size,
     limit: Limit,
     status: Status,
     last_scroll_offset: f32,
@@ -912,7 +908,6 @@ impl State {
             scrollable: widget::Id::unique(),
             pane_size,
             viewport_height: pane_size.height, // Hopefully a sane default before the viewport is measured.
-            content_size: Size::default(), // Set initially by the content sensor.
             limit: Limit::Bottom(step_messages),
             status: Status::default(),
             last_scroll_offset: 0.0,
@@ -961,7 +956,9 @@ impl State {
 
                 let relative_offset = scroll.viewport.relative_offset().y;
                 let absolute_offset = scroll.viewport.absolute_offset().y;
-                let height = self.pane_size.height;
+
+                let height = self.viewport_height;
+                let content_height = scroll.viewport.content.height;
 
                 let mut event = None;
 
@@ -970,7 +967,7 @@ impl State {
                     _ if old_status.is_page_from_bottom(
                         absolute_offset,
                         height,
-                        self.content_size.height,
+                        content_height,
                     ) && has_more_newer_messages =>
                     {
                         self.status = Status::Unlocked;
@@ -997,7 +994,7 @@ impl State {
                                 // isn't a simultaneous anchor flip and message
                                 // load when scrolling up from bottom
                                 2.0 * height,
-                                self.content_size.height,
+                                content_height,
                             ) && has_more_older_messages
                             {
                                 self.limit = Limit::Bottom(
@@ -1015,7 +1012,7 @@ impl State {
                     _ if old_status.is_page_from_top(
                         absolute_offset,
                         height,
-                        self.content_size.height,
+                        content_height,
                     ) && has_more_older_messages =>
                     {
                         self.status = Status::Unlocked;
@@ -1064,7 +1061,7 @@ impl State {
                                 if old_status.is_page_from_bottom(
                                     absolute_offset,
                                     height,
-                                    self.content_size.height,
+                                    content_height,
                                 ) && has_more_newer_messages
                                 {
                                     self.limit = Limit::Top(
@@ -1419,9 +1416,6 @@ impl State {
             }
             Message::MarkAsRead => {
                 return (Task::none(), Some(Event::MarkAsRead));
-            }
-            Message::ContentResized(size) => {
-                self.content_size = size;
             }
             Message::ImagePreview(image) => {
                 return (Task::none(), Some(Event::ImagePreview(image)));
