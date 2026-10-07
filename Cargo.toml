@@ -86,6 +86,7 @@ iced = { workspace = true, features = [
     "fira-sans",
     "tokio",
     "advanced",
+    "selector",
     "image",
     "svg",
     "wayland",
