@@ -81,6 +81,7 @@ pub enum Message {
     HidePreview(history::Id, message::Time, url::Url),
     MarkAsRead,
     ContentResized(Size),
+    ScrollableResized(Size),
     PendingScrollTo,
     FadeHighlight(history::Id, u64),
     HeightsCollected(Vec<(keyed::Row, f32)>),
@@ -874,7 +875,7 @@ pub fn view<'a>(
         sensor(content_column.push(space::vertical().height(line_spacing)))
             .on_resize(Message::ContentResized);
 
-    correct_viewport(
+    sensor(correct_viewport(
         Scrollable::new(container(content).width(Length::Fill).padding([0, 8]))
             .direction(scrollable::Direction::Vertical(
                 scrollable::Scrollbar::default()
@@ -904,7 +905,9 @@ pub fn view<'a>(
                 .map(keyed::Key::Message),
             _ => Some(key),
         },
-    )
+    ))
+    .on_resize(Message::ScrollableResized)
+    .into()
 }
 
 #[derive(Debug, Clone)]
@@ -947,8 +950,8 @@ impl State {
         Self {
             scrollable: widget::Id::unique(),
             pane_size,
-            viewport_height: pane_size.height,
-            content_height: 8.0 * pane_size.height,
+            viewport_height: 0.0,
+            content_height: 0.0,
             limit,
             status: Status::default(),
             last_scroll_offset: 0.0,
@@ -1490,6 +1493,9 @@ impl State {
                         storage.set_model_limit(kind_ref.into(), self.limit);
                     }
                 }
+            }
+            Message::ScrollableResized(size) => {
+                self.viewport_height = size.height;
             }
             Message::ImagePreview(image) => {
                 return (Task::none(), Some(Event::ImagePreview(image)));
