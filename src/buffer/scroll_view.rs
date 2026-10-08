@@ -20,8 +20,8 @@ use data::target::{self, Target};
 use data::{Config, Image, Preview, client, metadata, reaction};
 use hashbrown::{HashMap, HashSet};
 use iced::widget::{
-    self, Scrollable, button, column, container, row, rule, scrollable, space,
-    text,
+    self, Scrollable, button, column, container, row, rule, scrollable, sensor,
+    space, text,
 };
 use iced::{Length, Size, Task, padding};
 use tokio::time;
@@ -80,6 +80,7 @@ pub enum Message {
     PreviewUnhovered(history::Id, usize),
     HidePreview(history::Id, message::Time, url::Url),
     MarkAsRead,
+    ContentResized(Size),
     PendingScrollTo,
     FadeHighlight(history::Id, u64),
     HeightsCollected(Vec<(keyed::Row, f32)>),
@@ -869,7 +870,9 @@ pub fn view<'a>(
         content_column = content_column.push(bottom_spacer);
     }
 
-    let content = content_column.push(space::vertical().height(line_spacing));
+    let content =
+        sensor(content_column.push(space::vertical().height(line_spacing)))
+            .on_resize(Message::ContentResized);
 
     correct_viewport(
         Scrollable::new(container(content).width(Length::Fill).padding([0, 8]))
@@ -909,6 +912,7 @@ pub struct State {
     pub scrollable: widget::Id,
     pane_size: Size,
     viewport_height: f32,
+    content_height: f32,
     limit: Limit,
     status: Status,
     last_scroll_offset: f32,
@@ -944,6 +948,7 @@ impl State {
             scrollable: widget::Id::unique(),
             pane_size,
             viewport_height: pane_size.height,
+            content_height: 8.0 * pane_size.height,
             limit,
             status: Status::default(),
             last_scroll_offset: 0.0,
@@ -985,22 +990,6 @@ impl State {
                 status: old_status,
                 scroll,
             } => {
-                let old_viewport_height = self.viewport_height;
-                self.viewport_height = scroll.viewport.bounds.height;
-
-                if old_viewport_height != self.viewport_height {
-                    let adjusted_count = self.adjusted_message_count(
-                        models.has_more_messages(kind_ref),
-                        config,
-                    );
-
-                    if self.limit.count() != adjusted_count {
-                        self.limit = self.limit.with_count(adjusted_count);
-
-                        storage.set_model_limit(kind_ref.into(), self.limit);
-                    }
-                }
-
                 if self.scroll_to.is_some()
                     || !accepts_scroll(
                         self.limit,
@@ -1017,7 +1006,7 @@ impl State {
                 let relative_offset = scroll.viewport.relative_offset().y;
                 let absolute_offset = scroll.viewport.absolute_offset().y;
 
-                let height = self.viewport_height;
+                let height = scroll.viewport.bounds.height;
                 let content_height = scroll.viewport.content.height;
 
                 let mut event = None;
@@ -1486,6 +1475,22 @@ impl State {
             Message::MarkAsRead => {
                 return (Task::none(), Some(Event::MarkAsRead));
             }
+            Message::ContentResized(size) => {
+                if self.content_height != size.height {
+                    self.content_height = size.height;
+
+                    let adjusted_count = self.adjusted_message_count(
+                        models.has_more_messages(kind_ref),
+                        config,
+                    );
+
+                    if self.limit.count() != adjusted_count {
+                        self.limit = self.limit.with_count(adjusted_count);
+
+                        storage.set_model_limit(kind_ref.into(), self.limit);
+                    }
+                }
+            }
             Message::ImagePreview(image) => {
                 return (Task::none(), Some(Event::ImagePreview(image)));
             }
@@ -1844,6 +1849,9 @@ impl State {
         storage: &mut storage::Manager,
         config: &Config,
     ) {
+        let width_changed = self.pane_size.width != pane_size.width;
+        self.pane_size = pane_size;
+
         let adjusted_count = self
             .adjusted_message_count(models.has_more_messages(kind_ref), config);
 
@@ -1852,10 +1860,6 @@ impl State {
 
             storage.set_model_limit(kind_ref.into(), self.limit);
         }
-
-        let width_changed = self.pane_size.width != pane_size.width;
-
-        self.pane_size = pane_size;
 
         if width_changed {
             self.height_cache.clear();
@@ -2138,11 +2142,11 @@ impl State {
 
         let step = step_messages(self.pane_size.height, config);
 
-        if self.viewport_height < 8.0 * self.pane_size.height
+        if self.content_height < 8.0 * self.pane_size.height
             && has_more_messages
         {
             count = count.saturating_add(step);
-        } else if self.viewport_height > 16.0 * self.pane_size.height
+        } else if self.content_height > 16.0 * self.pane_size.height
             && count > 4 * step
         {
             count = count.saturating_sub(step);
