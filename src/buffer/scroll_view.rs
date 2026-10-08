@@ -17,8 +17,8 @@ use data::server::Server;
 use data::target::{self, Target};
 use data::{Config, Image, Preview, client, history, metadata, reaction};
 use iced::widget::{
-    self, Scrollable, button, column, container, row, rule, scrollable, space,
-    text,
+    self, Scrollable, button, column, container, row, rule, scrollable, sensor,
+    space, text,
 };
 use iced::{Length, Size, Task, padding};
 use tokio::time;
@@ -77,6 +77,7 @@ pub enum Message {
     PreviewUnhovered(message::Hash, usize),
     HidePreview(message::Hash, url::Url),
     MarkAsRead,
+    ContentResized(Size),
     PendingScrollTo,
     FadeHighlight(message::Hash, u64),
     HeightsCollected(Vec<(keyed::Key, f32)>),
@@ -853,7 +854,7 @@ pub fn view<'a>(
 
     let content = content_column.push(space::vertical().height(line_spacing));
 
-    correct_viewport(
+    sensor(correct_viewport(
         Scrollable::new(container(content).width(Length::Fill).padding([0, 8]))
             .direction(scrollable::Direction::Vertical(
                 scrollable::Scrollbar::default()
@@ -877,7 +878,9 @@ pub fn view<'a>(
             .id(state.scrollable.clone()),
         state.scrollable.clone(),
         matches!(state.status, Status::Unlocked),
-    )
+    ))
+    .on_resize(Message::ContentResized)
+    .into()
 }
 
 #[derive(Debug, Clone)]
@@ -907,7 +910,7 @@ impl State {
         Self {
             scrollable: widget::Id::unique(),
             pane_size,
-            viewport_height: pane_size.height, // Hopefully a sane default before the viewport is measured.
+            viewport_height: 0.0,
             limit: Limit::Bottom(step_messages),
             status: Status::default(),
             last_scroll_offset: 0.0,
@@ -946,8 +949,6 @@ impl State {
                 status: old_status,
                 scroll,
             } => {
-                self.viewport_height = scroll.viewport.bounds.height;
-
                 if self.scroll_to.is_some() {
                     return (Task::none(), None);
                 }
@@ -957,7 +958,7 @@ impl State {
                 let relative_offset = scroll.viewport.relative_offset().y;
                 let absolute_offset = scroll.viewport.absolute_offset().y;
 
-                let height = self.viewport_height;
+                let height = scroll.viewport.bounds.height;
                 let content_height = scroll.viewport.content.height;
 
                 let mut event = None;
@@ -1416,6 +1417,9 @@ impl State {
             }
             Message::MarkAsRead => {
                 return (Task::none(), Some(Event::MarkAsRead));
+            }
+            Message::ContentResized(size) => {
+                self.viewport_height = size.height;
             }
             Message::ImagePreview(image) => {
                 return (Task::none(), Some(Event::ImagePreview(image)));
