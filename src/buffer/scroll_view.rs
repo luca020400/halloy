@@ -1132,10 +1132,9 @@ impl State {
                     self.status.flipped(old_status, scroll.viewport)
                 {
                     self.last_scroll_offset = new_offset.y;
-                    let scroll_to = widget::operation::scroll_to(
+                    let scroll_to = correct_viewport::scroll_to(
                         self.scrollable.clone(),
                         new_offset,
-                        widget::operation::Animation::Instant,
                     );
 
                     return (scroll_to.chain(collect), event);
@@ -1375,10 +1374,9 @@ impl State {
 
                     return (
                         Task::batch([
-                            widget::operation::scroll_to(
+                            correct_viewport::scroll_to(
                                 self.scrollable.clone(),
                                 scrollable::AbsoluteOffset { x: 0.0, y: 0.0 },
-                                widget::operation::Animation::Instant,
                             ),
                             fade_task,
                         ]),
@@ -1406,13 +1404,12 @@ impl State {
 
                     return (
                         Task::batch([
-                            widget::operation::scroll_to(
+                            correct_viewport::scroll_to(
                                 self.scrollable.clone(),
                                 scrollable::AbsoluteOffset {
                                     x: 0.0,
                                     y: offset,
                                 },
-                                widget::operation::Animation::Instant,
                             ),
                             fade_task,
                         ]),
@@ -1924,10 +1921,9 @@ impl State {
             scrollable::Anchor::End => step,
         };
 
-        widget::operation::scroll_by(
+        correct_viewport::scroll_by(
             self.scrollable.clone(),
             scrollable::AbsoluteOffset { x: 0.0, y },
-            widget::operation::Animation::Instant,
         )
     }
 
@@ -1938,10 +1934,9 @@ impl State {
             scrollable::Anchor::End => -step,
         };
 
-        widget::operation::scroll_by(
+        correct_viewport::scroll_by(
             self.scrollable.clone(),
             scrollable::AbsoluteOffset { x: 0.0, y },
-            widget::operation::Animation::Instant,
         )
     }
 
@@ -1967,10 +1962,9 @@ impl State {
 
         storage.set_model_limit(kind_ref.into(), self.limit);
 
-        widget::operation::snap_to(
+        correct_viewport::snap_to(
             self.scrollable.clone(),
             scrollable::RelativeOffset::START,
-            widget::operation::Animation::Instant,
         )
     }
 
@@ -1996,10 +1990,9 @@ impl State {
 
         storage.set_model_limit(kind_ref.into(), self.limit);
 
-        widget::operation::snap_to(
+        correct_viewport::snap_to(
             self.scrollable.clone(),
             scrollable::RelativeOffset::START,
-            widget::operation::Animation::Instant,
         )
     }
 
@@ -2562,9 +2555,92 @@ mod correct_viewport {
     use iced::advanced::{self, shell, widget};
     use iced::widget::scrollable;
     use iced::widget::selector::Selector;
+    use iced::{Rectangle, Size, Task, Vector};
 
     use super::{Message, keyed};
     use crate::widget::{Element, Renderer, decorate};
+
+    struct Scroll {
+        scrollable: iced::widget::Id,
+        operation: Box<dyn Operation<()>>,
+    }
+
+    impl<T> Operation<T> for Scroll {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation<T>)) {
+            operate(self);
+        }
+
+        fn scrollable(
+            &mut self,
+            id: Option<&iced::widget::Id>,
+            bounds: Rectangle,
+            content: Size,
+            translation: Vector,
+            state: &mut dyn widget::operation::Scrollable,
+        ) {
+            if id != Some(&self.scrollable) {
+                return;
+            }
+
+            self.operation
+                .scrollable(id, bounds, content, translation, state);
+        }
+
+        fn custom(
+            &mut self,
+            id: Option<&iced::widget::Id>,
+            _bounds: Rectangle,
+            state: &mut dyn std::any::Any,
+        ) {
+            if id == Some(&self.scrollable)
+                && let Some(scrolled) = state.downcast_mut::<bool>()
+            {
+                *scrolled = true;
+            }
+        }
+    }
+
+    pub fn scroll_to(
+        scrollable: iced::widget::Id,
+        offset: impl Into<scrollable::AbsoluteOffset<Option<f32>>>,
+    ) -> Task<Message> {
+        advanced::widget::operate(Scroll {
+            operation: Box::new(widget::operation::scrollable::scroll_to(
+                scrollable.clone(),
+                offset.into(),
+                widget::operation::Animation::Instant,
+            )),
+            scrollable,
+        })
+    }
+
+    pub fn scroll_by(
+        scrollable: iced::widget::Id,
+        offset: scrollable::AbsoluteOffset,
+    ) -> Task<Message> {
+        advanced::widget::operate(Scroll {
+            operation: Box::new(widget::operation::scrollable::scroll_by(
+                scrollable.clone(),
+                offset,
+                widget::operation::Animation::Instant,
+            )),
+            scrollable,
+        })
+    }
+
+    pub fn snap_to(
+        scrollable: iced::widget::Id,
+        offset: impl Into<scrollable::RelativeOffset<Option<f32>>>,
+    ) -> Task<Message> {
+        advanced::widget::operate(Scroll {
+            operation: Box::new(widget::operation::scrollable::snap_to(
+                scrollable.clone(),
+                offset.into(),
+                widget::operation::Animation::Instant,
+            )),
+            scrollable,
+        })
+    }
 
     fn corrected_offset(old: &keyed::Hit, new: &keyed::Hit) -> f32 {
         let within_row = (old.scrollable.bounds.y
@@ -2710,6 +2786,30 @@ mod correct_viewport {
                             widget::operation::Outcome::Some(hit) => hit,
                             _ => None,
                         };
+                    }
+                }
+            })
+            .operate({
+                let scrollable = scrollable.clone();
+                move |state: &mut Option<keyed::Hit>,
+                      inner: &mut Element<'a, Message>,
+                      tree: &mut advanced::widget::Tree,
+                      layout: advanced::Layout,
+                      viewport: &iced::Rectangle,
+                      renderer: &Renderer,
+                      operation: &mut dyn advanced::widget::Operation<()>| {
+                    inner.as_widget_mut().operate(tree, layout, viewport, renderer, operation);
+
+                    let mut scrolled = false;
+
+                    operation.custom(
+                        Some(&scrollable),
+                        layout.bounds(),
+                        &mut scrolled,
+                    );
+
+                    if scrolled {
+                        *state = None;
                     }
                 }
             })
