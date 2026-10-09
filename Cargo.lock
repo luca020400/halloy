@@ -3317,7 +3317,16 @@ dependencies = [
  "bytes",
  "iced_core",
  "iced_futures",
+ "iced_selector",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "iced_selector"
+version = "0.15.0-dev"
+source = "git+https://github.com/squidowl/iced?rev=c48ed64a0e322199bea8da38452c3db212aed014#c48ed64a0e322199bea8da38452c3db212aed014"
+dependencies = [
+ "iced_core",
 ]
 
 [[package]]

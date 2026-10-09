@@ -83,6 +83,7 @@ pub enum Message {
     HidePreview(history::Id, message::Time, url::Url),
     MarkAsRead,
     ContentResized(Size),
+    ScrollableResized(Size),
     PendingScrollTo,
     FadeHighlight(history::Id, u64),
     HeightsCollected(Vec<(keyed::Row, f32)>),
@@ -889,7 +890,7 @@ pub fn view<'a>(
         sensor(content_column.push(space::vertical().height(line_spacing)))
             .on_resize(Message::ContentResized);
 
-    correct_viewport(
+    sensor(correct_viewport(
         Scrollable::new(container(content).width(Length::Fill).padding([0, 8]))
             .direction(scrollable::Direction::Vertical(
                 scrollable::Scrollbar::default()
@@ -920,14 +921,17 @@ pub fn view<'a>(
                 .map(keyed::Key::Message),
             _ => Some(key),
         },
-    )
+    ))
+    .on_resize(Message::ScrollableResized)
+    .into()
 }
 
 #[derive(Debug, Clone)]
 pub struct State {
     pub scrollable: widget::Id,
     pane_size: Size,
-    content_size: Size,
+    viewport_height: f32,
+    content_height: f32,
     limit: Limit,
     status: Status,
     last_scroll_offset: f32,
@@ -962,7 +966,8 @@ impl State {
         Self {
             scrollable: widget::Id::unique(),
             pane_size,
-            content_size: Size::default(), // Set initially by the content sensor.
+            viewport_height: 0.0,
+            content_height: 0.0,
             limit,
             status: Status::default(),
             last_scroll_offset: 0.0,
@@ -1023,7 +1028,9 @@ impl State {
 
                 let relative_offset = scroll.viewport.relative_offset().y;
                 let absolute_offset = scroll.viewport.absolute_offset().y;
-                let height = self.pane_size.height;
+
+                let height = scroll.viewport.bounds.height;
+                let content_height = scroll.viewport.content.height;
 
                 let mut event = None;
 
@@ -1035,7 +1042,7 @@ impl State {
                 if old_status.is_page_from_bottom(
                     absolute_offset,
                     height,
-                    self.content_size.height,
+                    content_height,
                 ) && has_more_newer_messages
                 {
                     // Scrolling down from top & need to load more messages.
@@ -1062,7 +1069,7 @@ impl State {
                 } else if old_status.is_page_from_top(
                     absolute_offset,
                     height,
-                    self.content_size.height,
+                    content_height,
                 ) && has_more_older_messages
                 {
                     // Scrolling up from bottom & have more to load
@@ -1116,11 +1123,8 @@ impl State {
 
                 storage.set_model_limit(kind_ref.into(), self.limit);
 
-                let collect = keyed::collect_heights(
-                    self.scrollable.clone(),
-                    self.limit.count(),
-                )
-                .map(Message::HeightsCollected);
+                let collect = keyed::collect_heights(self.scrollable.clone())
+                    .map(Message::HeightsCollected);
 
                 // If alignment changes, we need to flip the scrollable translation
                 // for the new offset
@@ -1128,9 +1132,10 @@ impl State {
                     self.status.flipped(old_status, scroll.viewport)
                 {
                     self.last_scroll_offset = new_offset.y;
-                    let scroll_to = correct_viewport::scroll_to(
+                    let scroll_to = widget::operation::scroll_to(
                         self.scrollable.clone(),
                         new_offset,
+                        widget::operation::Animation::Instant,
                     );
 
                     return (scroll_to.chain(collect), event);
@@ -1370,9 +1375,10 @@ impl State {
 
                     return (
                         Task::batch([
-                            correct_viewport::scroll_to(
+                            widget::operation::scroll_to(
                                 self.scrollable.clone(),
                                 scrollable::AbsoluteOffset { x: 0.0, y: 0.0 },
+                                widget::operation::Animation::Instant,
                             ),
                             fade_task,
                         ]),
@@ -1400,12 +1406,13 @@ impl State {
 
                     return (
                         Task::batch([
-                            correct_viewport::scroll_to(
+                            widget::operation::scroll_to(
                                 self.scrollable.clone(),
                                 scrollable::AbsoluteOffset {
                                     x: 0.0,
                                     y: offset,
                                 },
+                                widget::operation::Animation::Instant,
                             ),
                             fade_task,
                         ]),
@@ -1517,18 +1524,23 @@ impl State {
                 return (Task::none(), Some(Event::MarkAsRead));
             }
             Message::ContentResized(size) => {
-                self.content_size = size;
+                if self.content_height != size.height {
+                    self.content_height = size.height;
 
-                let adjusted_count = self.adjusted_message_count(
-                    models.has_more_messages(kind_ref),
-                    config,
-                );
+                    let adjusted_count = self.adjusted_message_count(
+                        models.has_more_messages(kind_ref),
+                        config,
+                    );
 
-                if self.limit.count() != adjusted_count {
-                    self.limit = self.limit.with_count(adjusted_count);
+                    if self.limit.count() != adjusted_count {
+                        self.limit = self.limit.with_count(adjusted_count);
 
-                    storage.set_model_limit(kind_ref.into(), self.limit);
+                        storage.set_model_limit(kind_ref.into(), self.limit);
+                    }
                 }
+            }
+            Message::ScrollableResized(size) => {
+                self.viewport_height = size.height;
             }
             Message::ImagePreview(image) => {
                 return (Task::none(), Some(Event::ImagePreview(image)));
@@ -1888,6 +1900,9 @@ impl State {
         storage: &mut storage::Manager,
         config: &Config,
     ) {
+        let width_changed = self.pane_size.width != pane_size.width;
+        self.pane_size = pane_size;
+
         let adjusted_count = self
             .adjusted_message_count(models.has_more_messages(kind_ref), config);
 
@@ -1897,34 +1912,36 @@ impl State {
             storage.set_model_limit(kind_ref.into(), self.limit);
         }
 
-        let width_changed = self.pane_size.width != pane_size.width;
-
-        self.pane_size = pane_size;
-
         if width_changed {
             self.height_cache.clear();
         }
     }
 
     pub fn scroll_up_page(&mut self) -> Task<Message> {
-        correct_viewport::scroll_by(
+        let step = (self.viewport_height - 20.0).max(0.0);
+        let y = match self.status.anchor() {
+            scrollable::Anchor::Start => -step,
+            scrollable::Anchor::End => step,
+        };
+
+        widget::operation::scroll_by(
             self.scrollable.clone(),
-            self.status.anchor(),
-            |bounds| scrollable::AbsoluteOffset {
-                x: 0.0,
-                y: -(bounds.height - 20.0).max(0.0).min(bounds.height),
-            },
+            scrollable::AbsoluteOffset { x: 0.0, y },
+            widget::operation::Animation::Instant,
         )
     }
 
     pub fn scroll_down_page(&mut self) -> Task<Message> {
-        correct_viewport::scroll_by(
+        let step = (self.viewport_height - 20.0).max(0.0);
+        let y = match self.status.anchor() {
+            scrollable::Anchor::Start => step,
+            scrollable::Anchor::End => -step,
+        };
+
+        widget::operation::scroll_by(
             self.scrollable.clone(),
-            self.status.anchor(),
-            |bounds| scrollable::AbsoluteOffset {
-                x: 0.0,
-                y: (bounds.height - 20.0).max(0.0).min(bounds.height),
-            },
+            scrollable::AbsoluteOffset { x: 0.0, y },
+            widget::operation::Animation::Instant,
         )
     }
 
@@ -1950,9 +1967,10 @@ impl State {
 
         storage.set_model_limit(kind_ref.into(), self.limit);
 
-        correct_viewport::scroll_to(
+        widget::operation::snap_to(
             self.scrollable.clone(),
-            scrollable::AbsoluteOffset { x: 0.0, y: 0.0 },
+            scrollable::RelativeOffset::START,
+            widget::operation::Animation::Instant,
         )
     }
 
@@ -1978,9 +1996,10 @@ impl State {
 
         storage.set_model_limit(kind_ref.into(), self.limit);
 
-        correct_viewport::scroll_to(
+        widget::operation::snap_to(
             self.scrollable.clone(),
-            scrollable::AbsoluteOffset { x: 0.0, y: 0.0 },
+            scrollable::RelativeOffset::START,
+            widget::operation::Animation::Instant,
         )
     }
 
@@ -2072,11 +2091,8 @@ impl State {
 
             let (task, scroll_to_state) = if needs_heights {
                 (
-                    keyed::collect_heights(
-                        self.scrollable.clone(),
-                        self.limit.count(),
-                    )
-                    .map(Message::HeightsCollected),
+                    keyed::collect_heights(self.scrollable.clone())
+                        .map(Message::HeightsCollected),
                     ScrollToState::Pending, // ScrollTo is pending heights collection
                 )
             } else {
@@ -2182,11 +2198,11 @@ impl State {
 
         let step = step_messages(self.pane_size.height, config);
 
-        if self.content_size.height < 8.0 * self.pane_size.height
+        if self.content_height < 8.0 * self.pane_size.height
             && has_more_messages
         {
             count = count.saturating_add(step);
-        } else if self.content_size.height > 16.0 * self.pane_size.height
+        } else if self.content_height > 16.0 * self.pane_size.height
             && count > 4 * step
         {
             count = count.saturating_sub(step);
@@ -2351,7 +2367,8 @@ fn step_messages(height: f32, config: &Config) -> usize {
 pub mod keyed {
     use data::message::Searchable;
     use data::{history, message};
-    use iced::advanced::widget::{self, Operation};
+    use iced::advanced::widget;
+    use iced::widget::selector::{self, Candidate, Selector};
     use iced::{Rectangle, Size, Task, Vector, advanced};
 
     use crate::widget::{Element, Renderer, decorate};
@@ -2463,231 +2480,88 @@ pub mod keyed {
         }
     }
 
-    pub fn find(scrollable: widget::Id, key: Key) -> Task<Option<Hit>> {
-        widget::operate(Find {
-            active: false,
-            scrollable_id: scrollable,
-            key,
-            scrollable: None,
-            hit_bounds: None,
-            time: None,
-        })
-    }
+    pub fn find_hit(
+        scrollable_id: widget::Id,
+        hit_key: Option<Key>,
+    ) -> impl Selector<Output = Hit> {
+        let mut scrollable = None;
 
-    #[derive(Debug, Clone)]
-    pub struct Find {
-        pub active: bool,
-        pub key: Key,
-        pub scrollable_id: widget::Id,
-        pub scrollable: Option<Scrollable>,
-        pub hit_bounds: Option<Rectangle>,
-        pub time: Option<message::Time>,
-    }
+        move |candidate: Candidate<'_>| match candidate {
+            Candidate::Scrollable {
+                id,
+                bounds,
+                content,
+                translation,
+                ..
+            } => {
+                if id == Some(&scrollable_id) {
+                    scrollable = Some(Scrollable {
+                        bounds,
+                        content,
+                        translation,
+                    });
+                }
 
-    impl Operation<Option<Hit>> for Find {
-        fn scrollable(
-            &mut self,
-            id: Option<&widget::Id>,
-            bounds: Rectangle,
-            content: Size,
-            translation: Vector,
-            _state: &mut dyn widget::operation::Scrollable,
-        ) {
-            if id.is_some_and(|id| *id == self.scrollable_id) {
-                self.scrollable = Some(Scrollable {
-                    bounds,
-                    content,
-                    translation,
-                });
-                self.active = true;
-            } else {
-                self.active = false;
+                None
             }
-        }
-
-        fn traverse(
-            &mut self,
-            operate: &mut dyn FnMut(&mut dyn Operation<Option<Hit>>),
-        ) {
-            operate(self);
-        }
-
-        fn custom(
-            &mut self,
-            _id: Option<&widget::Id>,
-            bounds: Rectangle,
-            state: &mut dyn std::any::Any,
-        ) {
-            if self.active
-                && let Some(row) = state.downcast_ref::<Row>()
-                && self.key == row.key
+            Candidate::Custom { bounds, state, .. }
+                if let Some(scrollable) = scrollable =>
             {
-                self.hit_bounds = Some(bounds);
-                self.time = row.time;
-            }
-        }
-
-        fn finish(&self) -> widget::operation::Outcome<Option<Hit>> {
-            widget::operation::Outcome::Some(
-                self.scrollable.zip(self.hit_bounds).map(
-                    |(scrollable, hit_bounds)| Hit {
-                        key: self.key,
-                        time: self.time,
-                        scrollable,
-                        hit_bounds,
+                let row = state.downcast_ref::<Row>()?;
+                let selected = hit_key.map_or_else(
+                    || {
+                        scrollable
+                            .bounds
+                            .intersects(&(bounds - scrollable.translation))
                     },
-                ),
-            )
-        }
-    }
+                    |hit| hit == row.key,
+                );
 
-    #[derive(Debug, Clone)]
-    pub struct TopOfViewport {
-        pub active: bool,
-        pub scrollable_id: widget::Id,
-        pub scrollable: Option<Scrollable>,
-        pub hit_bounds: Option<(Row, Rectangle)>,
-    }
-
-    impl Operation<Hit> for TopOfViewport {
-        fn scrollable(
-            &mut self,
-            id: Option<&widget::Id>,
-            bounds: Rectangle,
-            content: Size,
-            translation: Vector,
-            _state: &mut dyn widget::operation::Scrollable,
-        ) {
-            if id.is_some_and(|id| *id == self.scrollable_id) {
-                self.scrollable = Some(Scrollable {
-                    bounds,
-                    content,
-                    translation,
-                });
-                self.active = true;
-            } else {
-                self.active = false;
-            }
-        }
-
-        fn traverse(
-            &mut self,
-            operate: &mut dyn FnMut(&mut dyn Operation<Hit>),
-        ) {
-            operate(self);
-        }
-
-        fn custom(
-            &mut self,
-            _id: Option<&widget::Id>,
-            bounds: Rectangle,
-            state: &mut dyn std::any::Any,
-        ) {
-            if self.active
-                && let Some(row) = state.downcast_ref::<Row>()
-                && self.hit_bounds.is_none()
-                && self.scrollable.is_some_and(|scrollable| {
-                    scrollable
-                        .bounds
-                        .intersects(&(bounds - scrollable.translation))
-                })
-            {
-                self.hit_bounds = Some((*row, bounds));
-            }
-        }
-
-        fn finish(&self) -> widget::operation::Outcome<Hit> {
-            match self.scrollable.zip(self.hit_bounds).map(
-                |(scrollable, (row, hit_bounds))| Hit {
+                selected.then_some(Hit {
                     key: row.key,
                     time: row.time,
+                    hit_bounds: bounds,
                     scrollable,
-                    hit_bounds,
-                },
-            ) {
-                Some(hit) => widget::operation::Outcome::Some(hit),
-                None => widget::operation::Outcome::None,
+                })
             }
+            _ => None,
         }
     }
 
-    pub struct CollectHeights {
-        active: bool,
-        scrollable_id: widget::Id,
-        heights: Vec<(Row, f32)>,
+    pub fn find(scrollable: widget::Id, key: Key) -> Task<Option<Hit>> {
+        selector::find(find_hit(scrollable, Some(key)))
     }
 
-    impl Operation<Vec<(Row, f32)>> for CollectHeights {
-        fn scrollable(
-            &mut self,
-            id: Option<&widget::Id>,
-            _bounds: Rectangle,
-            _content: Size,
-            _translation: Vector,
-            _state: &mut dyn widget::operation::Scrollable,
-        ) {
-            self.active = id == Some(&self.scrollable_id);
-        }
+    pub fn collect_heights(scrollable_id: widget::Id) -> Task<Vec<(Row, f32)>> {
+        let mut active = false;
 
-        fn container(
-            &mut self,
-            _id: Option<&widget::Id>,
-            _bounds: Rectangle,
-            _viewport: &Rectangle,
-        ) {
-        }
-
-        fn traverse(
-            &mut self,
-            operate: &mut dyn FnMut(&mut dyn Operation<Vec<(Row, f32)>>),
-        ) {
-            operate(self);
-        }
-
-        fn custom(
-            &mut self,
-            _id: Option<&widget::Id>,
-            bounds: Rectangle,
-            state: &mut dyn std::any::Any,
-        ) {
-            if self.active
-                && let Some(row) = state.downcast_ref::<Row>()
-                && matches!(row.key, Key::Message(_) | Key::Divider)
-            {
-                self.heights.push((*row, bounds.height));
+        selector::find_all(move |candidate: Candidate<'_>| match candidate {
+            Candidate::Scrollable { id, .. } => {
+                active = id == Some(&scrollable_id);
+                None
             }
-        }
-
-        fn finish(&self) -> widget::operation::Outcome<Vec<(Row, f32)>> {
-            if self.heights.is_empty() {
-                widget::operation::Outcome::None
+            Candidate::Custom { bounds, state, .. } if active => {
+                let row = state.downcast_ref::<Row>()?;
+                matches!(row.key, Key::Message(_) | Key::Divider)
+                    .then_some((*row, bounds.height))
+            }
+            _ => None,
+        })
+        .then(|heights| {
+            if heights.is_empty() {
+                Task::none()
             } else {
-                widget::operation::Outcome::Some(self.heights.clone())
+                Task::done(heights)
             }
-        }
-    }
-
-    pub fn collect_heights(
-        scrollable: widget::Id,
-        message_count: usize,
-    ) -> Task<Vec<(Row, f32)>> {
-        widget::operate(CollectHeights {
-            active: false,
-            scrollable_id: scrollable,
-            heights: Vec::with_capacity(message_count),
         })
     }
 }
 
 mod correct_viewport {
-    use std::any::Any;
-    use std::sync::{Arc, Mutex};
-
-    use iced::advanced::widget::operation::{Scrollable, scrollable};
-    use iced::advanced::widget::{Id, Operation};
+    use iced::advanced::widget::Operation;
     use iced::advanced::{self, shell, widget};
-    use iced::widget::scrollable::{AbsoluteOffset, Anchor};
-    use iced::{Rectangle, Size, Task, Vector};
+    use iced::widget::scrollable;
+    use iced::widget::selector::Selector;
 
     use super::{Message, keyed};
     use crate::widget::{Element, Renderer, decorate};
@@ -2724,59 +2598,56 @@ mod correct_viewport {
                       viewport: &iced::Rectangle| {
                     let is_redraw = matches!(
                         event,
-                        iced::Event::Window(iced::window::Event::RedrawRequested(_))
+                        iced::Event::Window(
+                            iced::window::Event::RedrawRequested(_)
+                        )
                     );
 
                     // Check if top-of-viewport element has shifted since we
                     // last scrolled and adjust
-                    if let (true, true, Some(old)) = (enabled, is_redraw, &state)
+                    if let (true, true, Some(old)) =
+                        (enabled, is_redraw, &state)
                         && let Some(key) = resolve(old.key, old.time)
                     {
-                        let hit = Arc::new(Mutex::new(None));
+                        let mut operation =
+                            keyed::find_hit(scrollable.clone(), Some(key))
+                                .find();
 
-                        let mut operation = widget::operation::map(
-                            keyed::Find {
-                                active: false,
-                                key,
-                                scrollable_id: scrollable.clone(),
-                                scrollable: None,
-                                hit_bounds: None,
-                                time: None,
-                            },
-                            {
-                                let hit = hit.clone();
-                                move |result| {
-                                    *hit.lock().unwrap() = result;
-                                }
-                            },
+                        inner.as_widget_mut().operate(
+                            tree,
+                            layout,
+                            viewport,
+                            renderer,
+                            &mut widget::operation::black_box(&mut operation),
                         );
 
-                        inner
-                            .as_widget_mut()
-                            .operate(tree, layout, viewport, renderer, &mut operation);
-                        operation.finish();
-                        drop(operation);
-
-                        if let Some(new) = Arc::into_inner(hit)
-                            .and_then(|m| m.into_inner().ok())
-                            .flatten()
+                        if let widget::operation::Outcome::Some(Some(new)) =
+                            operation.finish()
                         {
                             // Something shifted this, let's put it back to the
                             // top of the viewport
-                            if new.hit_bounds != old.hit_bounds || new.key != old.key {
+                            if new.hit_bounds != old.hit_bounds
+                                || new.key != old.key
+                            {
                                 let new_offset = corrected_offset(old, &new);
 
-                                let mut operation = scrollable::scroll_to(
-                                    scrollable.clone(),
-                                    scrollable::AbsoluteOffset {
-                                        x: None,
-                                        y: Some(new_offset),
-                                    },
-                                    widget::operation::Animation::Instant,
+                                let mut operation =
+                                    widget::operation::scrollable::scroll_to(
+                                        scrollable.clone(),
+                                        scrollable::AbsoluteOffset {
+                                            x: None,
+                                            y: Some(new_offset.max(0.0)),
+                                        },
+                                        widget::operation::Animation::Instant,
+                                    );
+                                inner.as_widget_mut().operate(
+                                    tree,
+                                    layout,
+                                    viewport,
+                                    renderer,
+                                    &mut operation,
                                 );
-                                inner
-                                    .as_widget_mut()
-                                    .operate(tree, layout, viewport, renderer, &mut operation);
+
                                 operation.finish();
                             }
                         }
@@ -2799,8 +2670,12 @@ mod correct_viewport {
                     // access to messages)
                     {
                         match local_shell.redraw_request() {
-                            iced::window::RedrawRequest::NextFrame => shell.request_redraw(),
-                            iced::window::RedrawRequest::At(at) => shell.request_redraw_at(at),
+                            iced::window::RedrawRequest::NextFrame => {
+                                shell.request_redraw()
+                            }
+                            iced::window::RedrawRequest::At(at) => {
+                                shell.request_redraw_at(at)
+                            }
                             iced::window::RedrawRequest::Wait => {}
                         }
 
@@ -2820,220 +2695,25 @@ mod correct_viewport {
 
                     // Re-query top of viewport any-time we scroll
                     if is_scrolled {
-                        let hit = Arc::new(Mutex::new(None));
+                        let mut operation =
+                            keyed::find_hit(scrollable.clone(), None).find();
 
-                        let mut operation = widget::operation::map(
-                            keyed::TopOfViewport {
-                                active: false,
-                                scrollable_id: scrollable.clone(),
-                                scrollable: None,
-                                hit_bounds: None,
-                            },
-                            {
-                                let hit = hit.clone();
-                                move |result| {
-                                    *hit.lock().unwrap() = Some(result);
-                                }
-                            },
+                        inner.as_widget_mut().operate(
+                            tree,
+                            layout,
+                            viewport,
+                            renderer,
+                            &mut widget::operation::black_box(&mut operation),
                         );
 
-                        inner
-                            .as_widget_mut()
-                            .operate(tree, layout, viewport, renderer, &mut operation);
-                        operation.finish();
-                        drop(operation);
-
-                        *state = Arc::into_inner(hit)
-                            .and_then(|m| m.into_inner().ok())
-                            .flatten();
+                        *state = match operation.finish() {
+                            widget::operation::Outcome::Some(hit) => hit,
+                            _ => None,
+                        };
                     }
                 }
             })
-            .operate(
-                move |state: &mut Option<keyed::Hit>,
-                      inner: &mut Element<'a, Message>,
-                      tree: &mut advanced::widget::Tree,
-                      layout: advanced::Layout,
-                      viewport: &iced::Rectangle,
-                      renderer: &Renderer,
-                      operation: &mut dyn advanced::widget::Operation<()>| {
-                    inner.as_widget_mut().operate(tree, layout, viewport, renderer, operation);
-
-                    let mut is_scroll_to = false;
-
-                    operation.custom(
-                        Some(&scrollable),
-                        layout.bounds(),
-                        &mut is_scroll_to,
-                    );
-
-                    if is_scroll_to {
-                        let hit = Arc::new(Mutex::new(None));
-
-                        let mut operation = widget::operation::map(
-                            keyed::TopOfViewport {
-                                active: false,
-                                scrollable_id: scrollable.clone(),
-                                scrollable: None,
-                                hit_bounds: None,
-                            },
-                            {
-                                let hit = hit.clone();
-                                move |result| {
-                                    *hit.lock().unwrap() = Some(result);
-                                }
-                            },
-                        );
-
-                        inner
-                            .as_widget_mut()
-                            .operate(tree, layout, viewport, renderer, &mut operation);
-                        operation.finish();
-                        drop(operation);
-
-                        *state = Arc::into_inner(hit)
-                            .and_then(|m| m.into_inner().ok())
-                            .flatten();
-                    }
-                },
-            )
             .into()
-    }
-
-    pub fn scroll_to<T: Send + 'static>(
-        target: impl Into<Id>,
-        offset: AbsoluteOffset,
-    ) -> Task<T> {
-        struct ScrollTo {
-            target: Id,
-            offset: AbsoluteOffset,
-        }
-
-        impl<T> Operation<T> for ScrollTo {
-            fn container(
-                &mut self,
-                _id: Option<&Id>,
-                _bounds: Rectangle,
-                _viewport: &Rectangle,
-            ) {
-            }
-
-            fn traverse(
-                &mut self,
-                operate: &mut dyn FnMut(&mut dyn Operation<T>),
-            ) {
-                operate(self);
-            }
-
-            fn scrollable(
-                &mut self,
-                id: Option<&Id>,
-                bounds: Rectangle,
-                content: Size,
-                _translation: Vector,
-                state: &mut dyn Scrollable,
-            ) {
-                if id.is_some_and(|id| *id == self.target) {
-                    state.scroll_to(
-                        self.offset.into(),
-                        widget::operation::Animation::Instant,
-                        bounds,
-                        content,
-                    );
-                }
-            }
-
-            fn custom(
-                &mut self,
-                id: Option<&Id>,
-                _bounds: Rectangle,
-                state: &mut dyn Any,
-            ) {
-                if id.is_some_and(|id| *id == self.target)
-                    && let Some(is_scroll_to) = state.downcast_mut::<bool>()
-                {
-                    *is_scroll_to = true;
-                }
-            }
-        }
-
-        widget::operate(ScrollTo {
-            target: target.into(),
-            offset,
-        })
-    }
-
-    pub fn scroll_by<T: Send + 'static>(
-        target: impl Into<Id>,
-        anchor: Anchor,
-        f: impl Fn(Rectangle) -> AbsoluteOffset + Send + 'static,
-    ) -> Task<T> {
-        struct ScrollBy {
-            target: Id,
-            anchor: Anchor,
-            f: Box<dyn Fn(Rectangle) -> AbsoluteOffset + Send>,
-        }
-
-        impl<T> Operation<T> for ScrollBy {
-            fn container(
-                &mut self,
-                _id: Option<&Id>,
-                _bounds: Rectangle,
-                _viewport: &Rectangle,
-            ) {
-            }
-
-            fn traverse(
-                &mut self,
-                operate: &mut dyn FnMut(&mut dyn Operation<T>),
-            ) {
-                operate(self);
-            }
-
-            fn scrollable(
-                &mut self,
-                id: Option<&Id>,
-                bounds: Rectangle,
-                content: Size,
-                _translation: Vector,
-                state: &mut dyn Scrollable,
-            ) {
-                if Some(&self.target) == id {
-                    let mut offset = (self.f)(bounds);
-
-                    // Flip offset
-                    if matches!(self.anchor, Anchor::End) {
-                        offset.y = -offset.y;
-                    }
-
-                    state.scroll_by(
-                        offset,
-                        widget::operation::Animation::Instant,
-                        bounds,
-                        content,
-                    );
-                }
-            }
-
-            fn custom(
-                &mut self,
-                id: Option<&Id>,
-                _bounds: Rectangle,
-                state: &mut dyn Any,
-            ) {
-                if id.is_some_and(|id| *id == self.target)
-                    && let Some(is_scroll_to) = state.downcast_mut::<bool>()
-                {
-                    *is_scroll_to = true;
-                }
-            }
-        }
-
-        widget::operate(ScrollBy {
-            target: target.into(),
-            anchor,
-            f: Box::new(f),
-        })
     }
 }
 
